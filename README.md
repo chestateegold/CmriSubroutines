@@ -12,7 +12,6 @@ In order to begin communicating with your CMRI node, you must first create a Cmr
 
 ```C#
 using CmriSubRoutines;
-
 SubRoutines subRoutines = new SubRoutines(5);
 ```
 
