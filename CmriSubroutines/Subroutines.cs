@@ -15,7 +15,7 @@ namespace CmriSubroutines
         private readonly int MAXBUF = 50;
 
         /// <summary>
-        /// Initializes the CommObj
+        /// Initializes the Serial Port Communications Object
         /// </summary>
         /// <param name="COMPORT">COMPORT Number</param>
         /// <param name="BAUD100">Baud rate / 100. Default 1152</param>
@@ -56,8 +56,6 @@ namespace CmriSubroutines
         /// initializes specified smini node
         /// </summary>        
         /// <param name="UA">Usic Address</param>
-        /// <param name="DL">Delay between bytes being sent back to the PC from the node</param>
-        /// <param name="MAXTRIES"></param>
         public void INIT(int UA)
         {
             byte[] iOutputBuffer = new byte[4];
@@ -71,15 +69,13 @@ namespace CmriSubroutines
             iOutputBuffer[2] = (byte)(DELAY - (iOutputBuffer[1] * 256));
             iOutputBuffer[3] = 0; // number of 2 lead signals
 
-            TransmitPackage(UA, 'I', iOutputBuffer);
+            transmitPackage(UA, 'I', iOutputBuffer);
         }
 
         /// <summary>
         /// Gets all inputs from smini node
         /// </summary>
         /// <param name="UA"></param>
-        /// <param name="MAXTRIES"></param>
-        /// <param name="MAXBUF"></param>
         /// <returns></returns>
         public byte[] INPUTS(int UA)
         {
@@ -94,7 +90,7 @@ namespace CmriSubroutines
                 CommObj.DiscardInBuffer();
 
                 // Polls node
-                TransmitPackage(UA, 'P', inputs);
+                transmitPackage(UA, 'P', inputs);
 
                 // loop to get start of transmission (stx)
                 bool stx = false;
@@ -160,7 +156,7 @@ namespace CmriSubroutines
         {
             // should be some validation here
             CommObj.DiscardOutBuffer();
-            TransmitPackage(UA, 'T', iOutputBuffer); // 84 is message type "T"
+            transmitPackage(UA, 'T', iOutputBuffer); // 84 is message type "T"
         }
 
         /// <summary>
@@ -170,7 +166,7 @@ namespace CmriSubroutines
         /// <param name="UA">USIC Address of node</param>
         /// <param name="iMessageType"></param>
         /// <param name="iOutputBuffer">Data to be output</param>
-        private void TransmitPackage(int UA, int iMessageType, byte[] iOutputBuffer)
+        private void transmitPackage(int UA, int iMessageType, byte[] iOutputBuffer)
         {
             // buffer that heads to node
             byte[] bTransmitBuffer = new byte[80];
