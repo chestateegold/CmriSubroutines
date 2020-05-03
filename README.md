@@ -38,6 +38,7 @@ To retreive outputs, call the OUTPUTS method of your subRoutines object. The fir
 
 ```C#
 byte[] outputs = [0b00000000, 0b11111111, 0b01010101];
+subRoutines.OUTPUTS(0, outputs);
 ```
 
 ## License
