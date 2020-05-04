@@ -12,7 +12,7 @@ namespace CmriSubroutines
         private System.IO.Ports.SerialPort CommObj;
         private readonly int MAXTRIES = 1500;
         private readonly int DELAY = 0;
-        private readonly int MAXBUF = 50;
+        private readonly int MAXBUF = 256;
 
         /// <summary>
         /// Initializes the Serial Port Communications Object
@@ -29,9 +29,6 @@ namespace CmriSubroutines
 
             if (BAUD100 != 96 && BAUD100 != 192 && BAUD100 != 288 && BAUD100 != 576 && BAUD100 != 1152)
                 throw new ArgumentOutOfRangeException("BAUD100", "Valid BAUD100 values are 96, 192, 228, 576 and 1152");
-
-            if (MAXBUF < 1 || MAXBUF > 262)
-                throw new ArgumentOutOfRangeException("MAXBUF", "Valid MAXBUF range is 1 through 262");
 
             if (CommObj.IsOpen)
                 CommObj.Close();

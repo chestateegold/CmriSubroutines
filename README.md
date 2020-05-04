@@ -36,7 +36,7 @@ byte[] inputs = subRoutines.INPUTS(0);
 To retreive outputs, call the OUTPUTS method of your subRoutines object. The first argument is the address of your node and the second argument is the array of bytes you are sending to your node.
 
 ```C#
-byte[] outputs = [0b00000000, 0b11111111, 0b01010101];
+byte[] outputs = [(byte)0b00000000, (byte)0b11111111, (byte)0b01010101];
 subRoutines.OUTPUTS(0, outputs);
 ```
 
