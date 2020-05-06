@@ -10,24 +10,24 @@ namespace CmriSubroutines
     public class Subroutines
     {
         private System.IO.Ports.SerialPort CommObj;
-        private readonly int MAXTRIES = 1500;
-        private readonly int DELAY = 0;
-        private readonly int MAXBUF = 256;
+        private readonly int _maxTries = 1500;
+        private readonly int _delay = 0;
+        private readonly int _maxBuf = 64;
 
         /// <summary>
         /// Initializes the Serial Port Communications Object
         /// </summary>
-        /// <param name="COMPORT">COMPORT Number</param>
-        /// <param name="BAUD100">Baud rate / 100. Default 1152</param>
-        public Subroutines(int COMPORT, int BAUD100 = 1152)
+        /// <param name="ComPort">COMPORT Number</param>
+        /// <param name="Baud100">Baud rate / 100. Default 1152</param>
+        public Subroutines(int ComPort, int Baud100 = 1152)
         {
             CommObj = new System.IO.Ports.SerialPort();
 
             /* Validate all arguments */
-            if (COMPORT < 1 || COMPORT > 6)
+            if (ComPort < 1 || ComPort > 6)
                 throw new ArgumentOutOfRangeException("COMPORT", "Valid COMPORT range is 1-6");
 
-            if (BAUD100 != 96 && BAUD100 != 192 && BAUD100 != 288 && BAUD100 != 576 && BAUD100 != 1152)
+            if (Baud100 != 96 && Baud100 != 192 && Baud100 != 288 && Baud100 != 576 && Baud100 != 1152)
                 throw new ArgumentOutOfRangeException("BAUD100", "Valid BAUD100 values are 96, 192, 228, 576 and 1152");
 
             if (CommObj.IsOpen)
@@ -35,15 +35,15 @@ namespace CmriSubroutines
 
             /* SET MScomm1 TO SELECTED PORT */
             //The object name is formatted like "COM4"
-            CommObj.PortName = "COM" + COMPORT;
-            CommObj.BaudRate = BAUD100 * 100;  // the system needs the full baud rate
+            CommObj.PortName = "COM" + ComPort;
+            CommObj.BaudRate = Baud100 * 100;  // the system needs the full baud rate
             CommObj.Parity = System.IO.Ports.Parity.None;
             CommObj.DataBits = 8;
             CommObj.StopBits = System.IO.Ports.StopBits.Two;
 
             /* INITIALIZE REMAINDER OF MSComm1 PROPERTIES */
-            CommObj.WriteBufferSize = MAXBUF;
-            CommObj.ReadBufferSize = MAXBUF;
+            CommObj.WriteBufferSize = _maxBuf;
+            CommObj.ReadBufferSize = _maxBuf;
             CommObj.Open();
             CommObj.DiscardInBuffer();
             CommObj.DiscardOutBuffer();
@@ -62,8 +62,8 @@ namespace CmriSubroutines
 
             // **DEFINE INITIALIZATION MESSAGE PARAMETERS
             iOutputBuffer[0] = (byte)'M'; // smini code
-            iOutputBuffer[1] = (byte)(DELAY / 256);
-            iOutputBuffer[2] = (byte)(DELAY - (iOutputBuffer[1] * 256));
+            iOutputBuffer[1] = (byte)(_delay / 256);
+            iOutputBuffer[2] = (byte)(_delay - (iOutputBuffer[1] * 256));
             iOutputBuffer[3] = 0; // number of 2 lead signals
 
             transmitPackage(UA, 'I', iOutputBuffer);
@@ -93,13 +93,15 @@ namespace CmriSubroutines
                 bool stx = false;
                 while (!stx)
                 {
-                    iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                    iInByte = receiveByte(UA);
 
                     if (iInByte != 2) // this message is not the start of the transmission, retry
                         continue;
+                    else
+                        poll = false;
 
                     // now checking for the UA
-                    iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                    iInByte = receiveByte(UA);
                     if (iInByte - 65 != UA)
                     {
                         Console.WriteLine("ERROR; Received bad UA = " + iInByte);
@@ -107,7 +109,7 @@ namespace CmriSubroutines
                     }
 
                     // check that the message is an 'R' message
-                    iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                    iInByte = receiveByte(UA);
                     if (iInByte != 82)
                     {
                         Console.WriteLine("Error received not = R for UA = " + UA);
@@ -122,20 +124,20 @@ namespace CmriSubroutines
                     // begin looping through inputs. Hardcoded for smini
                     for (int i = 0; i < 3; i++)
                     {
-                        iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                        iInByte = receiveByte(UA);
 
                         if (iInByte == 2)
                             throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
                         else if (iInByte == 3)
                             throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
                         else if (iInByte == 16) // this is the escape character
-                            iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                            iInByte = receiveByte(UA);
 
                         inputs[i] = iInByte;
                     }
 
                     // check for ETX
-                    iInByte = iReceiveByte(UA, MAXTRIES, MAXBUF);
+                    iInByte = receiveByte(UA);
                     if (iInByte != 3)
                         Console.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
                 }
@@ -148,12 +150,12 @@ namespace CmriSubroutines
         /// Sends outputs to a specified node
         /// </summary>        
         /// <param name="UA"></param>
-        /// <param name="iOutputBuffer"></param>
-        public void OUTPUTS(int UA, byte[] iOutputBuffer)
+        /// <param name="OutputBuffer"></param>
+        public void OUTPUTS(int UA, byte[] OutputBuffer)
         {
             // should be some validation here
             CommObj.DiscardOutBuffer();
-            transmitPackage(UA, 'T', iOutputBuffer); // 84 is message type "T"
+            transmitPackage(UA, 'T', OutputBuffer); // 84 is message type "T"
         }
 
         /// <summary>
@@ -161,9 +163,9 @@ namespace CmriSubroutines
         /// </summary>
         /// <param name="CommObj">Comm object used to communivate with nodes</param>
         /// <param name="UA">USIC Address of node</param>
-        /// <param name="iMessageType"></param>
-        /// <param name="iOutputBuffer">Data to be output</param>
-        private void transmitPackage(int UA, int iMessageType, byte[] iOutputBuffer)
+        /// <param name="MessageType"></param>
+        /// <param name="OutputBuffer">Data to be output</param>
+        private void transmitPackage(int UA, int MessageType, byte[] OutputBuffer)
         {
             // buffer that heads to node
             byte[] bTransmitBuffer = new byte[80];
@@ -174,16 +176,16 @@ namespace CmriSubroutines
             bTransmitBuffer[1] = 255;
             bTransmitBuffer[2] = 2;
             bTransmitBuffer[3] = (byte)(UA + 65);
-            bTransmitBuffer[4] = (byte)iMessageType;
+            bTransmitBuffer[4] = (byte)MessageType;
 
             int iXmitPointer = 5; // transmit buffer begins at 6th byte, first 5 are header info
 
             CommObj.DiscardOutBuffer();
 
             /* Write data from output buffer to transmit buffer. */
-            if (iMessageType != 80) // 80 is a poll request, head to end message
+            if (MessageType != 80) // 80 is a poll request, head to end message
             {
-                foreach (byte b in iOutputBuffer)
+                foreach (byte b in OutputBuffer)
                 {
                     if (b == 2 || b == 3 || b == 16) // escapes command bytes
                     {
@@ -207,22 +209,22 @@ namespace CmriSubroutines
                 Thread.Sleep(10);
         }
 
-        private byte iReceiveByte(int iMaxTries, int UA, int MaxBuf)
+        private byte receiveByte(int UA)
         {
             int tries = 0;
             do
             {
-                if (CommObj.BytesToRead > MaxBuf)
+                if (CommObj.BytesToRead > _maxBuf)
                     throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + MaxBuf);
 
                 if (CommObj.BytesToRead != 0)
                     break;
 
                 tries++;
-            } while (tries < iMaxTries);
+            } while (tries < _maxTries);
 
-            if (tries == iMaxTries)
-                throw new TimeoutException("INPUT TRIES EXCEEDED " + iMaxTries + " NODE = " + UA + " ABORTING INPUT");
+            if (tries == _maxTries)
+                throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
 
             return (byte)CommObj.ReadByte();
         }
