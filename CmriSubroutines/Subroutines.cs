@@ -10,20 +10,36 @@ namespace CmriSubroutines
     public class Subroutines
     {
         private System.IO.Ports.SerialPort CommObj;
-        private readonly int _maxTries = 1500;
-        private readonly int _delay = 0;
-        private readonly int _maxBuf = 64;
+        private readonly int _maxTries;
+        private readonly int _delay;
+        private readonly int _maxBuf;
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object
+        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 1500 max tries, 0 delay and 64 maxbuf
         /// </summary>
-        /// <param name="ComPort">COMPORT Number</param>
-        /// <param name="Baud100">Baud rate / 100. Default 1152</param>
-        public Subroutines(int ComPort, int Baud100 = 1152)
+        /// <param name="ComPort"></param>
+        public Subroutines(int ComPort) : this(ComPort, 1152, 1500, 0, 64)
         {
+        }
+
+        /// <summary>
+        /// Initializes the Serial Port Communications Object with explicit values
+        /// </summary>
+        /// <param name="ComPort"></param>
+        /// <param name="Baud100"></param>
+        /// <param name="MaxTries"></param>
+        /// <param name="Delay"></param>
+        /// <param name="MaxBuf"></param>
+        public Subroutines(int ComPort, int Baud100, int MaxTries, int Delay, int MaxBuf)
+        {
+            _maxTries = MaxTries;
+            _delay = Delay;
+            _maxBuf = MaxBuf;
+
             CommObj = new System.IO.Ports.SerialPort();
 
             /* Validate all arguments */
+            //TODO: validate maxtries, delat and maxbuf
             if (ComPort < 1 || ComPort > 6)
                 throw new ArgumentOutOfRangeException("COMPORT", "Valid COMPORT range is 1-6");
 
@@ -50,23 +66,87 @@ namespace CmriSubroutines
         }
 
         /// <summary>
-        /// initializes specified smini node
-        /// </summary>        
-        /// <param name="UA">Usic Address</param>
-        public void INIT(int UA)
+        /// Initializes specified node.
+        /// </summary>
+        /// <param name="UA">Node Address</param>
+        /// <param name="NodeType"></param>
+        public void Init(int UA, NodeType NodeType)
         {
-            byte[] iOutputBuffer = new byte[4];
+            // ensure this isn't a maxi. we are required to have a CT array with maxi
+            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
+            {
+                throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
+            }
 
+            Init(UA, NodeType, new byte[] { 0, 0, 0, 0, 0, 0 });
+        }
+
+        /// <summary>
+        /// Initializes specified node with CT parameter.
+        /// </summary>
+        /// <param name="UA">Node Address</param>
+        /// <param name="NodeType"></param>
+        /// <param name="CT">Card type array for MAXI nodes and SMINI 2 lead signals</param>
+        public void Init(int UA, NodeType NodeType, byte[] CT)
+        {
             if (UA > 127)
                 throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
 
-            // **DEFINE INITIALIZATION MESSAGE PARAMETERS
-            iOutputBuffer[0] = (byte)'M'; // smini code
-            iOutputBuffer[1] = (byte)(_delay / 256);
-            iOutputBuffer[2] = (byte)(_delay - (iOutputBuffer[1] * 256));
-            iOutputBuffer[3] = 0; // number of 2 lead signals
+            if ((NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32) && (CT == null || CT.Length == 0))
+                throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
 
-            transmitPackage(UA, 'I', iOutputBuffer);
+            if (NodeType == NodeType.SMINI && CT.Length != 6)
+                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
+
+            //TODO: abstract everything after this out. It is different enough to justify it
+            byte[] outputBuffer = new byte[4];
+
+            // validate and count the CT array
+            int ctCount = 0; // aka NS
+            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
+            {
+                throw new NotImplementedException("MAXI node not supported. Coming Soon!");
+            }
+            else if (NodeType == NodeType.SMINI)
+            {
+                // loop through each card in the CT array to count and validate the locations of 2 lead signals
+                for (int i = 0; i < CT.Length; i++)
+                {
+                    /* bitwise function to check if an odd number of bites are consecutively high.
+                     * an odd number of high bits in a row is invalid. */
+                    int successiveHighBits = 0;
+                    for (int j = 0; j <= 8; j++) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
+                    {
+                        if ((1 << j & CT[i]) != 0)
+                        {
+                            successiveHighBits++;
+                        }
+                        else if (successiveHighBits % 2 == 0)
+                        {
+                            ctCount += successiveHighBits / 2; // one signal for every 2 high bits in a row
+                            successiveHighBits = 0;
+                        }
+                        else
+                        {
+                            throw new ArgumentException("CT",
+                                $"CT array value at index: ${i} with value: ${CT[i]} " +
+                                $"contains invalid dual lead signal positions ");
+                        }
+                    }
+                }
+            }
+
+            //TODO: update codes based on node type
+            // DEFINE INITIALIZATION MESSAGE PARAMETERS
+            outputBuffer[0] = (byte)'M'; // smini code
+            outputBuffer[1] = (byte)(_delay / 256);
+            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
+
+            //TODO this won't be static anymore
+            outputBuffer[3] = 0; // number of 2 lead signals
+
+            //TODO will transmit package with whatever is returned from our abstracted method
+            transmitPackage(UA, 'I', outputBuffer);
         }
 
         /// <summary>
@@ -74,7 +154,7 @@ namespace CmriSubroutines
         /// </summary>
         /// <param name="UA"></param>
         /// <returns></returns>
-        public byte[] INPUTS(int UA)
+        public byte[] Inputs(int UA)
         {
             byte[] inputs = new byte[3];
             byte iInByte;
@@ -151,7 +231,7 @@ namespace CmriSubroutines
         /// </summary>        
         /// <param name="UA"></param>
         /// <param name="OutputBuffer"></param>
-        public void OUTPUTS(int UA, byte[] OutputBuffer)
+        public void Outputs(int UA, byte[] OutputBuffer)
         {
             // should be some validation here
             CommObj.DiscardOutBuffer();
@@ -215,7 +295,7 @@ namespace CmriSubroutines
             do
             {
                 if (CommObj.BytesToRead > _maxBuf)
-                    throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + MaxBuf);
+                    throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + _maxBuf);
 
                 if (CommObj.BytesToRead != 0)
                     break;
@@ -228,5 +308,12 @@ namespace CmriSubroutines
 
             return (byte)CommObj.ReadByte();
         }
+    }
+
+    public enum NodeType
+    {
+        SMINI,
+        MAXI24,
+        MAXI32
     }
 }
