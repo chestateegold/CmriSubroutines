@@ -45,7 +45,7 @@ namespace CmriSubroutines
             if (Delay < 0)
                 throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
 
-            if(MaxBuf <= 0)
+            if (MaxBuf <= 0)
                 throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
 
             _maxTries = MaxTries;
@@ -125,7 +125,7 @@ namespace CmriSubroutines
             outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
 
             if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-                throw new NotImplementedException("MAXI node not supported. Coming Soon!");
+                outputBuffer = outputBuffer.Concat(getMaxiInitBytes(CT)).ToArray();
             else if (NodeType == NodeType.SMINI)
                 outputBuffer = outputBuffer.Concat(getSminiInitBytes(CT)).ToArray();
 
@@ -272,6 +272,11 @@ namespace CmriSubroutines
                 Thread.Sleep(10);
         }
 
+        /// <summary>
+        /// Loops until an input byte is detected in the buffer or the number of maxTries is reached
+        /// </summary>
+        /// <param name="UA">USIC Address of node</param>
+        /// <returns></returns>
         private byte receiveByte(int UA)
         {
             int tries = 0;
@@ -293,7 +298,7 @@ namespace CmriSubroutines
         }
 
         /// <summary>
-        /// Generates the partts of the output buffer that concern the CT array for the SMINI
+        /// Generates and validates the parts of the output buffer that concern the CT array for the SMINI
         /// </summary>
         /// <param name="CT"></param>
         /// <returns></returns>
@@ -301,6 +306,7 @@ namespace CmriSubroutines
         {
             // validate and count the CT array
             int twoLeadSignalCount = 0; // aka NS
+
             // loop through each card in the CT array to count and validate the locations of 2 lead signals
             for (int i = 0; i < CT.Length; i++)
             {
@@ -333,6 +339,42 @@ namespace CmriSubroutines
 
             // number of 2 lead signals
             ctOutputBuffer[0] = (byte)twoLeadSignalCount;
+
+            // copy ct array to output buffer
+            CT.CopyTo(ctOutputBuffer, 1);
+
+            return ctOutputBuffer;
+        }
+
+        /// <summary>
+        /// Generates and validates the parts of the output buffer that concern the CT array for the MAXI node
+        /// </summary>
+        /// <param name="CT"></param>
+        /// <returns></returns>
+        private byte[] getMaxiInitBytes(byte[] CT)
+        {
+            // loop through each card in the CT array to count and validate the locations of IO cards
+            for (int i = 0; i < CT.Length; i++)
+            {
+                /* bitwise function to ensure slots are not set to both input and output */
+                for (int j = 0; j < 8; j += 2) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
+                {
+                    // checks to see if the bit is set for either an input or output
+                    if ((CT[i] & 1 << j) != 0 && (CT[i] & 1 << j + 1) != 0)
+                    {
+                        throw new ArgumentException("CT",
+                            $"CT array value at index: ${i} with value: ${CT[i]} " +
+                            $"contains invalid input and output board positions. Slot can not be both input and output");
+                    }
+                }
+            }
+
+            // build the ct portion of output buffer
+            byte[] ctOutputBuffer = new byte[1 + CT.Length];
+
+            // number of 2 lead signals
+            int NS = CT.Length % 4 == 0 ? CT.Length : CT.Length / 4 + 1;
+            ctOutputBuffer[0] = (byte)NS;
 
             // copy ct array to output buffer
             CT.CopyTo(ctOutputBuffer, 1);

@@ -49,5 +49,11 @@
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CmriSubroutines\CmriSubroutines.csproj">
+      <Project>{876b6285-09c2-4b88-a2d6-23583c6722f5}</Project>
+      <Name>CmriSubroutines</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
