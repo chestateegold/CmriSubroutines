@@ -32,20 +32,27 @@ namespace CmriSubroutines
         /// <param name="MaxBuf"></param>
         public Subroutines(int ComPort, int Baud100, int MaxTries, int Delay, int MaxBuf)
         {
+            /* Validate all arguments */
+            if (ComPort < 1 || ComPort > 6)
+                throw new ArgumentOutOfRangeException("ComPort", "Valid COMPORT range is 1-6");
+
+            if (Baud100 != 96 && Baud100 != 192 && Baud100 != 288 && Baud100 != 576 && Baud100 != 1152)
+                throw new ArgumentOutOfRangeException("Baud100", "Valid BAUD100 values are 96, 192, 228, 576 and 1152");
+
+            if (MaxTries <= 0)
+                throw new ArgumentOutOfRangeException("MaxTries", "MaxTries must be a positive");
+
+            if (Delay < 0)
+                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
+
+            if(MaxBuf <= 0)
+                throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
+
             _maxTries = MaxTries;
             _delay = Delay;
             _maxBuf = MaxBuf;
 
             CommObj = new System.IO.Ports.SerialPort();
-
-            /* Validate all arguments */
-            //TODO: validate maxtries, delat and maxbuf
-            if (ComPort < 1 || ComPort > 6)
-                throw new ArgumentOutOfRangeException("COMPORT", "Valid COMPORT range is 1-6");
-
-            if (Baud100 != 96 && Baud100 != 192 && Baud100 != 288 && Baud100 != 576 && Baud100 != 1152)
-                throw new ArgumentOutOfRangeException("BAUD100", "Valid BAUD100 values are 96, 192, 228, 576 and 1152");
-
             if (CommObj.IsOpen)
                 CommObj.Close();
 
@@ -89,6 +96,7 @@ namespace CmriSubroutines
         /// <param name="CT">Card type array for MAXI nodes and SMINI 2 lead signals</param>
         public void Init(int UA, NodeType NodeType, byte[] CT)
         {
+            // validation
             if (UA > 127)
                 throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
 
@@ -98,54 +106,29 @@ namespace CmriSubroutines
             if (NodeType == NodeType.SMINI && CT.Length != 6)
                 throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
 
-            //TODO: abstract everything after this out. It is different enough to justify it
-            byte[] outputBuffer = new byte[4];
+            // create first part of buffer to be sent to railroad
+            byte[] outputBuffer = new byte[3];
 
-            // validate and count the CT array
-            int ctCount = 0; // aka NS
-            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
+            switch (NodeType) // set node definition parameter
             {
-                throw new NotImplementedException("MAXI node not supported. Coming Soon!");
+                case NodeType.SMINI:
+                    outputBuffer[0] = (byte)'M';
+                    break;
+                case NodeType.MAXI24:
+                    outputBuffer[0] = (byte)'N';
+                    break;
+                case NodeType.MAXI32:
+                    outputBuffer[0] = (byte)'X';
+                    break;
             }
-            else if (NodeType == NodeType.SMINI)
-            {
-                // loop through each card in the CT array to count and validate the locations of 2 lead signals
-                for (int i = 0; i < CT.Length; i++)
-                {
-                    /* bitwise function to check if an odd number of bites are consecutively high.
-                     * an odd number of high bits in a row is invalid. */
-                    int successiveHighBits = 0;
-                    for (int j = 0; j <= 8; j++) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
-                    {
-                        if ((1 << j & CT[i]) != 0)
-                        {
-                            successiveHighBits++;
-                        }
-                        else if (successiveHighBits % 2 == 0)
-                        {
-                            ctCount += successiveHighBits / 2; // one signal for every 2 high bits in a row
-                            successiveHighBits = 0;
-                        }
-                        else
-                        {
-                            throw new ArgumentException("CT",
-                                $"CT array value at index: ${i} with value: ${CT[i]} " +
-                                $"contains invalid dual lead signal positions ");
-                        }
-                    }
-                }
-            }
-
-            //TODO: update codes based on node type
-            // DEFINE INITIALIZATION MESSAGE PARAMETERS
-            outputBuffer[0] = (byte)'M'; // smini code
             outputBuffer[1] = (byte)(_delay / 256);
             outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
 
-            //TODO this won't be static anymore
-            outputBuffer[3] = 0; // number of 2 lead signals
+            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
+                throw new NotImplementedException("MAXI node not supported. Coming Soon!");
+            else if (NodeType == NodeType.SMINI)
+                outputBuffer = outputBuffer.Concat(getSminiInitBytes(CT)).ToArray();
 
-            //TODO will transmit package with whatever is returned from our abstracted method
             transmitPackage(UA, 'I', outputBuffer);
         }
 
@@ -307,6 +290,54 @@ namespace CmriSubroutines
                 throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
 
             return (byte)CommObj.ReadByte();
+        }
+
+        /// <summary>
+        /// Generates the partts of the output buffer that concern the CT array for the SMINI
+        /// </summary>
+        /// <param name="CT"></param>
+        /// <returns></returns>
+        private byte[] getSminiInitBytes(byte[] CT)
+        {
+            // validate and count the CT array
+            int twoLeadSignalCount = 0; // aka NS
+            // loop through each card in the CT array to count and validate the locations of 2 lead signals
+            for (int i = 0; i < CT.Length; i++)
+            {
+                /* bitwise function to check if an odd number of bites are consecutively high.
+                 * an odd number of high bits in a row is invalid. */
+                int successiveHighBits = 0;
+                for (int j = 0; j <= 8; j++) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
+                {
+                    // checks the bit at index j to see if it is set
+                    if ((CT[i] & 1 << j) != 0)
+                    {
+                        successiveHighBits++;
+                    }
+                    else if (successiveHighBits % 2 == 0) // even high bit groups indicates valid 2 lead signal configuration
+                    {
+                        twoLeadSignalCount += successiveHighBits / 2; // one signal for every 2 high bits in a row
+                        successiveHighBits = 0;
+                    }
+                    else
+                    {
+                        throw new ArgumentException("CT",
+                            $"CT array value at index: ${i} with value: ${CT[i]} " +
+                            $"contains invalid dual lead signal positions ");
+                    }
+                }
+            }
+
+            // build the ct portion of output buffer
+            byte[] ctOutputBuffer = new byte[1 + CT.Length];
+
+            // number of 2 lead signals
+            ctOutputBuffer[0] = (byte)twoLeadSignalCount;
+
+            // copy ct array to output buffer
+            CT.CopyTo(ctOutputBuffer, 1);
+
+            return ctOutputBuffer;
         }
     }
 

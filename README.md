@@ -2,28 +2,54 @@
 
 This project was built to address the lack of highly performative CMRI subroutines built on the .NET framework. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#.
 
-# Currently Unsupported Features
-Currently the package only supports SMINI nodes. Also, support for dual lead signals is not yet supported for the SMINI. Support for MAXI nodes, dual lead signals and cpNodes is on the way!
+## Currently Unsupported Features
+Currently the package only supports SMINI nodes. Support for MAXI nodes and cpNodes is on the way!
 
-## Getting Started
+# Getting Started
 
-In order to use these subroutines, clone this respository and compile the project. Then add the resulting compiled DLL as a reference to your project that will use the subroutines.
+In order to use these subroutines, clone this respository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
 
 ## Initiating a COMPORT connection
 
-In order to begin communicating with your CMRI node, you must first create a CmriSubroutines object. This initializes the COM PORT that you will be using and sets up shared resources to be used during all calls made on that port. The first argument is required and chooses the COMPORT that you wish to use. The second is optional and sets the baud rate. 
+In order to begin communicating with your CMRI node, you must first create a CmriSubroutines object. This initializes the COM PORT that you will be using and also sets up shared resources to be used during all calls made on that port. The first argument is required and chooses the COMPORT that you wish to use. The following paramaters are optional and allow you to manually set the BaudRate, MaxTries, Delay and MaxBuf. 
 
+#### Using default values
 ```C#
 using CmriSubRoutines;
-SubRoutines subRoutines = new SubRoutines(5);
+
+int Port = 5;
+SubRoutines subRoutines = new SubRoutines(Port);
+```
+
+#### Using explicit values
+```C#
+using CmriSubRoutines;
+
+int Port = 5;
+int Baud100 = 576;
+int MaxTries = 5000;
+int Delay = 50;
+int MaxBuf = 64;
+SubRoutines subRoutines = new SubRoutines(Port, Baud100, MaxTries, Delay, MaxBuf);
 ```
 
 ## Initiating a node
 
-The next step is to initiate your node over your newly created COMPORT connection. To do this, simply call the INIT method of your new SubRoutines object. This call takes a single argument with the node address.
+The next step is to initiate your node over your newly created COMPORT connection. To do this, simply call the INIT method of your new SubRoutines object. The first argument takes the node address. The second argument is an enumeration that explicitly sets what type of node is being initiated. The third is optional and is the CT array for the node.
 
+#### Initiating node without a CT Array
 ```C#
-subRoutines.INIT(0);
+int nodeAddress = 0;
+subRoutines.INIT(nodeAddress, NodeType.SMINI);
+```
+
+#### Initiating node with a CT array
+```C#
+int nodeAddress = 0;
+
+// CT array populated with locations of 2 lead signal outputs
+byte[] CT = new byte[]{(byte)3, (byte)12, (byte)198, (byte)0, (byte)0, (byte)0}; 
+subRoutines.INIT(0, NodeType.SMINI, CT);
 ```
 
 ## Retreiving inputs from the node
