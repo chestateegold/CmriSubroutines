@@ -2,9 +2,6 @@
 
 This project was built to address the lack of highly performative CMRI subroutines built on the .NET framework. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#.
 
-## Currently Unsupported Features
-Currently the package only supports SMINI nodes. Support for MAXI nodes and cpNodes is on the way!
-
 # Getting Started
 
 In order to use these subroutines, clone this respository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
