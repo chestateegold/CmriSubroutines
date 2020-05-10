@@ -40,7 +40,7 @@ The next step is to initiate your node over your newly created COMPORT connectio
 #### Initiating node without a CT Array
 ```C#
 int nodeAddress = 0;
-subRoutines.INIT(nodeAddress, NodeType.SMINI);
+subRoutines.Init(nodeAddress, NodeType.SMINI);
 ```
 
 #### Initiating node with a CT array
@@ -49,7 +49,8 @@ int nodeAddress = 0;
 
 // CT array populated with locations of 2 lead signal outputs
 byte[] CT = new byte[]{(byte)3, (byte)12, (byte)198, (byte)0, (byte)0, (byte)0}; 
-subRoutines.INIT(0, NodeType.SMINI, CT);
+
+subRoutines.Init(nodeAddress), NodeType.SMINI, CT);
 ```
 
 ## Retreiving inputs from the node
@@ -57,7 +58,8 @@ subRoutines.INIT(0, NodeType.SMINI, CT);
 To retreive inputs, call the INPUTS method of your subRoutines object. The argument is the address of your node. Set the results to a byte array. Each byte corresponds to each input card on your node.
 
 ```C#
-byte[] inputs = subRoutines.INPUTS(0);
+int nodeAddress = 0;
+byte[] inputs = subRoutines.Inputs(nodeAddress);
 ```
 
 ## Sending outputs to the node
@@ -65,8 +67,10 @@ byte[] inputs = subRoutines.INPUTS(0);
 To retreive outputs, call the OUTPUTS method of your subRoutines object. The first argument is the address of your node and the second argument is the array of bytes you are sending to your node.
 
 ```C#
+int nodeAddress = 0;
 byte[] outputs = new byte []{(byte)0b00000000, (byte)0b11111111, (byte)0b01010101};
-subRoutines.OUTPUTS(0, outputs);
+
+subRoutines.Outputs(nodeAddress, outputs);
 ```
 
 ## License
