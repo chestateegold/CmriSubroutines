@@ -47,7 +47,7 @@ int nodeAddress = 0;
 // CT array populated with locations of 2 lead signal outputs
 byte[] CT = new byte[]{(byte)3, (byte)12, (byte)198, (byte)0, (byte)0, (byte)0}; 
 
-subRoutines.Init(nodeAddress), NodeType.SMINI, CT);
+subRoutines.Init(nodeAddress, NodeType.SMINI, CT);
 ```
 
 ## Retreiving inputs from the node

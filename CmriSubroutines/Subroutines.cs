@@ -329,7 +329,7 @@ namespace CmriSubroutines
                     {
                         throw new ArgumentException("CT",
                             $"CT array value at index: ${i} with value: ${CT[i]} " +
-                            $"contains invalid dual lead signal positions ");
+                            $"contains invalid dual lead signal positions");
                     }
                 }
             }
