@@ -18,7 +18,7 @@ namespace CmriSubroutines
         /// Initializes the Serial Port Communications Object with default 1152 baud rate, 1500 max tries, 0 delay and 64 maxbuf
         /// </summary>
         /// <param name="ComPort"></param>
-        public Subroutines(int ComPort) : this(ComPort, 1152, 1500, 0, 64)
+        public Subroutines(int ComPort) : this(ComPort, 1152, 3000, 0, 64)
         {
         }
 
@@ -150,6 +150,9 @@ namespace CmriSubroutines
             // loop through each card in the CT array to count and validate the locations of 2 lead signals
             for (int i = 0; i < CT.Length; i++)
             {
+                if (CT[i] == 0)
+                    continue;
+
                 /* bitwise function to check if an odd number of bites are consecutively high.
                  * an odd number of high bits in a row is invalid. */
                 int successiveHighBits = 0;
@@ -175,13 +178,15 @@ namespace CmriSubroutines
             }
 
             // build the ct portion of output buffer
-            byte[] ctOutputBuffer = new byte[1 + CT.Length];
+            int outputBufferLength = twoLeadSignalCount > 0 ? 1 + CT.Length : 1;
+            byte[] ctOutputBuffer = new byte[outputBufferLength];
 
             // number of 2 lead signals
             ctOutputBuffer[0] = (byte)twoLeadSignalCount;
 
             // copy ct array to output buffer
-            CT.CopyTo(ctOutputBuffer, 1);
+            if (twoLeadSignalCount > 0)
+                CT.CopyTo(ctOutputBuffer, 1);
 
             return ctOutputBuffer;
         }
@@ -212,8 +217,8 @@ namespace CmriSubroutines
             // build the ct portion of output buffer
             byte[] ctOutputBuffer = new byte[1 + CT.Length];
 
-            // number of 2 lead signals
-            int NS = CT.Length % 4 == 0 ? CT.Length : CT.Length / 4 + 1;
+            // number of cards/ 4, rounded up
+            int NS = CT.Length;
             ctOutputBuffer[0] = (byte)NS;
 
             // copy ct array to output buffer

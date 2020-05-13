@@ -47,7 +47,7 @@ subRoutines.Init(nodeAddress, NodeType.SMINI);
 int nodeAddress = 0;
 
 // CT array populated with locations of 2 lead signal outputs
-byte[] CT = new byte[]{(byte)3, (byte)12, (byte)198, (byte)0, (byte)0, (byte)0}; 
+byte[] CT = new byte[]{ 3, 12, 198, 0, 0, 0 }; 
 
 subRoutines.Init(nodeAddress, NodeType.SMINI, CT);
 ```
@@ -67,7 +67,7 @@ To retreive outputs, call the OUTPUTS method of your subRoutines object. The fir
 
 ```C#
 int nodeAddress = 0;
-byte[] outputs = new byte []{(byte)0b00000000, (byte)0b11111111, (byte)0b01010101};
+byte[] outputs = new byte []{ 0b00000000, 0b11111111, 0b01010101 };
 
 subRoutines.Outputs(nodeAddress, outputs);
 ```
