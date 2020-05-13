@@ -120,181 +120,21 @@ namespace CmriSubroutines
                 case NodeType.MAXI32:
                     outputBuffer[0] = (byte)'X';
                     break;
+                case NodeType.CPNODE:
+                    outputBuffer[0] = (byte)'C';
+                    break;
             }
             outputBuffer[1] = (byte)(_delay / 256);
             outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
 
             if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-                outputBuffer = outputBuffer.Concat(getMaxiInitBytes(CT)).ToArray();
+                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(CT)).ToArray();
             else if (NodeType == NodeType.SMINI)
-                outputBuffer = outputBuffer.Concat(getSminiInitBytes(CT)).ToArray();
+                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(CT)).ToArray();
+            else if (NodeType == NodeType.CPNODE)
+                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
 
-            transmitPackage(UA, 'I', outputBuffer);
-        }
-
-        /// <summary>
-        /// Gets all inputs from smini node
-        /// </summary>
-        /// <param name="UA"></param>
-        /// <returns></returns>
-        public byte[] Inputs(int UA)
-        {
-            byte[] inputs = new byte[3];
-            byte iInByte;
-
-            // Transmit poll loop
-            bool poll = true;
-            while (poll)
-            {
-                // clears input buffer
-                CommObj.DiscardInBuffer();
-
-                // Polls node
-                transmitPackage(UA, 'P', inputs);
-
-                // loop to get start of transmission (stx)
-                bool stx = false;
-                while (!stx)
-                {
-                    iInByte = receiveByte(UA);
-
-                    if (iInByte != 2) // this message is not the start of the transmission, retry
-                        continue;
-                    else
-                        poll = false;
-
-                    // now checking for the UA
-                    iInByte = receiveByte(UA);
-                    if (iInByte - 65 != UA)
-                    {
-                        Console.WriteLine("ERROR; Received bad UA = " + iInByte);
-                        break; // this has returned the wrong UA, repol.
-                    }
-
-                    // check that the message is an 'R' message
-                    iInByte = receiveByte(UA);
-                    if (iInByte != 82)
-                    {
-                        Console.WriteLine("Error received not = R for UA = " + UA);
-                        continue;
-                    }
-
-                    stx = true;
-                }
-
-                if (stx)
-                {
-                    // begin looping through inputs. Hardcoded for smini
-                    for (int i = 0; i < 3; i++)
-                    {
-                        iInByte = receiveByte(UA);
-
-                        if (iInByte == 2)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
-                        else if (iInByte == 3)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
-                        else if (iInByte == 16) // this is the escape character
-                            iInByte = receiveByte(UA);
-
-                        inputs[i] = iInByte;
-                    }
-
-                    // check for ETX
-                    iInByte = receiveByte(UA);
-                    if (iInByte != 3)
-                        Console.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
-                }
-            }
-
-            return inputs;
-        }
-
-        /// <summary>
-        /// Sends outputs to a specified node
-        /// </summary>        
-        /// <param name="UA"></param>
-        /// <param name="OutputBuffer"></param>
-        public void Outputs(int UA, byte[] OutputBuffer)
-        {
-            // should be some validation here
-            CommObj.DiscardOutBuffer();
-            transmitPackage(UA, 'T', OutputBuffer); // 84 is message type "T"
-        }
-
-        /// <summary>
-        /// Transmits outputs to a specified node
-        /// </summary>
-        /// <param name="CommObj">Comm object used to communivate with nodes</param>
-        /// <param name="UA">USIC Address of node</param>
-        /// <param name="MessageType"></param>
-        /// <param name="OutputBuffer">Data to be output</param>
-        private void transmitPackage(int UA, int MessageType, byte[] OutputBuffer)
-        {
-            // buffer that heads to node
-            byte[] bTransmitBuffer = new byte[80];
-
-            // pointer for transmit buffer
-
-            bTransmitBuffer[0] = 255;
-            bTransmitBuffer[1] = 255;
-            bTransmitBuffer[2] = 2;
-            bTransmitBuffer[3] = (byte)(UA + 65);
-            bTransmitBuffer[4] = (byte)MessageType;
-
-            int iXmitPointer = 5; // transmit buffer begins at 6th byte, first 5 are header info
-
-            CommObj.DiscardOutBuffer();
-
-            /* Write data from output buffer to transmit buffer. */
-            if (MessageType != 80) // 80 is a poll request, head to end message
-            {
-                foreach (byte b in OutputBuffer)
-                {
-                    if (b == 2 || b == 3 || b == 16) // escapes command bytes
-                    {
-                        bTransmitBuffer[iXmitPointer] = 16;
-                        iXmitPointer++;
-                    }
-
-                    bTransmitBuffer[iXmitPointer] = b;
-                    iXmitPointer++;
-                }
-            }
-
-            /* ENDMSG */
-            bTransmitBuffer[iXmitPointer] = 3;
-            iXmitPointer++;
-
-            /* Transmit message to railroad */
-            CommObj.Write(bTransmitBuffer, 0, iXmitPointer);
-
-            while (CommObj.BytesToWrite > 0) // allows buffer to empty if it is taking long         
-                Thread.Sleep(10);
-        }
-
-        /// <summary>
-        /// Loops until an input byte is detected in the buffer or the number of maxTries is reached
-        /// </summary>
-        /// <param name="UA">USIC Address of node</param>
-        /// <returns></returns>
-        private byte receiveByte(int UA)
-        {
-            int tries = 0;
-            do
-            {
-                if (CommObj.BytesToRead > _maxBuf)
-                    throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + _maxBuf);
-
-                if (CommObj.BytesToRead != 0)
-                    break;
-
-                tries++;
-            } while (tries < _maxTries);
-
-            if (tries == _maxTries)
-                throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
-
-            return (byte)CommObj.ReadByte();
+            TransmitPackage(UA, 'I', outputBuffer);
         }
 
         /// <summary>
@@ -302,7 +142,7 @@ namespace CmriSubroutines
         /// </summary>
         /// <param name="CT"></param>
         /// <returns></returns>
-        private byte[] getSminiInitBytes(byte[] CT)
+        private byte[] GetSminiInitBytes(byte[] CT)
         {
             // validate and count the CT array
             int twoLeadSignalCount = 0; // aka NS
@@ -351,7 +191,7 @@ namespace CmriSubroutines
         /// </summary>
         /// <param name="CT"></param>
         /// <returns></returns>
-        private byte[] getMaxiInitBytes(byte[] CT)
+        private byte[] GetMaxiInitBytes(byte[] CT)
         {
             // loop through each card in the CT array to count and validate the locations of IO cards
             for (int i = 0; i < CT.Length; i++)
@@ -381,12 +221,178 @@ namespace CmriSubroutines
 
             return ctOutputBuffer;
         }
+
+        /// <summary>
+        /// Gets all inputs from smini node
+        /// </summary>
+        /// <param name="UA"></param>
+        /// <returns></returns>
+        public byte[] Inputs(int UA)
+        {
+            byte[] inputs = new byte[3];
+            byte iInByte;
+
+            // Transmit poll loop
+            bool poll = true;
+            while (poll)
+            {
+                // clears input buffer
+                CommObj.DiscardInBuffer();
+
+                // Polls node
+                TransmitPackage(UA, 'P', inputs);
+
+                // loop to get start of transmission (stx)
+                bool stx = false;
+                while (!stx)
+                {
+                    iInByte = ReceiveByte(UA);
+
+                    if (iInByte != 2) // this message is not the start of the transmission, retry
+                        continue;
+                    else
+                        poll = false;
+
+                    // now checking for the UA
+                    iInByte = ReceiveByte(UA);
+                    if (iInByte - 65 != UA)
+                    {
+                        Console.WriteLine("ERROR; Received bad UA = " + iInByte);
+                        break; // this has returned the wrong UA, repol.
+                    }
+
+                    // check that the message is an 'R' message
+                    iInByte = ReceiveByte(UA);
+                    if (iInByte != 82)
+                    {
+                        Console.WriteLine("Error received not = R for UA = " + UA);
+                        continue;
+                    }
+
+                    stx = true;
+                }
+
+                if (stx)
+                {
+                    // begin looping through inputs. Hardcoded for smini
+                    for (int i = 0; i < 3; i++)
+                    {
+                        iInByte = ReceiveByte(UA);
+
+                        if (iInByte == 2)
+                            throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
+                        else if (iInByte == 3)
+                            throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
+                        else if (iInByte == 16) // this is the escape character
+                            iInByte = ReceiveByte(UA);
+
+                        inputs[i] = iInByte;
+                    }
+
+                    // check for ETX
+                    iInByte = ReceiveByte(UA);
+                    if (iInByte != 3)
+                        Console.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
+                }
+            }
+
+            return inputs;
+        }
+
+        /// <summary>
+        /// Sends outputs to a specified node
+        /// </summary>        
+        /// <param name="UA"></param>
+        /// <param name="OutputBuffer"></param>
+        public void Outputs(int UA, byte[] OutputBuffer)
+        {
+            // should be some validation here
+            CommObj.DiscardOutBuffer();
+            TransmitPackage(UA, 'T', OutputBuffer); // 84 is message type "T"
+        }
+
+        /// <summary>
+        /// Transmits outputs to a specified node
+        /// </summary>
+        /// <param name="CommObj">Comm object used to communivate with nodes</param>
+        /// <param name="UA">USIC Address of node</param>
+        /// <param name="MessageType"></param>
+        /// <param name="OutputBuffer">Data to be output</param>
+        private void TransmitPackage(int UA, int MessageType, byte[] OutputBuffer)
+        {
+            // buffer that heads to node
+            byte[] bTransmitBuffer = new byte[80];
+
+            // pointer for transmit buffer
+
+            bTransmitBuffer[0] = 255;
+            bTransmitBuffer[1] = 255;
+            bTransmitBuffer[2] = 2;
+            bTransmitBuffer[3] = (byte)(UA + 65);
+            bTransmitBuffer[4] = (byte)MessageType;
+
+            int iXmitPointer = 5; // transmit buffer begins at 6th byte, first 5 are header info
+
+            CommObj.DiscardOutBuffer();
+
+            /* Write data from output buffer to transmit buffer. */
+            if (MessageType != 80) // 80 is a poll request, head to end message
+            {
+                foreach (byte b in OutputBuffer)
+                {
+                    if (b == 2 || b == 3 || b == 16) // escapes command bytes
+                    {
+                        bTransmitBuffer[iXmitPointer] = 16;
+                        iXmitPointer++;
+                    }
+
+                    bTransmitBuffer[iXmitPointer] = b;
+                    iXmitPointer++;
+                }
+            }
+
+            /* ENDMSG */
+            bTransmitBuffer[iXmitPointer] = 3;
+            iXmitPointer++;
+
+            /* Transmit message to railroad */
+            CommObj.Write(bTransmitBuffer, 0, iXmitPointer);
+
+            while (CommObj.BytesToWrite > 0) // allows buffer to empty if it is taking long         
+                Thread.Sleep(10);
+        }
+
+        /// <summary>
+        /// Loops until an input byte is detected in the buffer or the number of maxTries is reached
+        /// </summary>
+        /// <param name="UA">USIC Address of node</param>
+        /// <returns></returns>
+        private byte ReceiveByte(int UA)
+        {
+            int tries = 0;
+            do
+            {
+                if (CommObj.BytesToRead > _maxBuf)
+                    throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + _maxBuf);
+
+                if (CommObj.BytesToRead != 0)
+                    break;
+
+                tries++;
+            } while (tries < _maxTries);
+
+            if (tries == _maxTries)
+                throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
+
+            return (byte)CommObj.ReadByte();
+        }
     }
 
     public enum NodeType
     {
         SMINI,
         MAXI24,
-        MAXI32
+        MAXI32,
+        CPNODE
     }
 }

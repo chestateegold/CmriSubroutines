@@ -1,6 +1,8 @@
 # CMRI Subroutines
 
-This project was built to address the lack of highly performative CMRI subroutines built on the .NET framework. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#.
+This project was built to address the lack of highly performative CMRI subroutines built on the .NET framework. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#, but you can use any .NET language including Visual Basic.
+
+These subroutines support the use of the [SMINI](https://www.jlcenterprises.net/collections/mini-node), [MAXI](https://www.jlcenterprises.net/collections/maxi-node) and [cpNode](http://www.modelrailroadcontrolsystems.com/cpnode-version-2-5/). If you would like another CMRI variant to be supported, feel free to open an issue on our github repo and we can start working on it!
 
 # Getting Started
 
