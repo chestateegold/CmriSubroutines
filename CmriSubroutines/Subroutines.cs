@@ -4,12 +4,16 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.IO.Ports;
 
 namespace CmriSubroutines
 {
     public class Subroutines
     {
-        private System.IO.Ports.SerialPort CommObj;
+        private ITransport _transport;
         private readonly int _maxTries;
         private readonly int _delay;
         private readonly int _maxBuf;
@@ -31,13 +35,22 @@ namespace CmriSubroutines
         /// <param name="Delay"></param>
         /// <param name="MaxBuf"></param>
         public Subroutines(int ComPort, int Baud100, int MaxTries, int Delay, int MaxBuf)
+            : this(new SerialTransport(ComPort, Baud100, MaxBuf), MaxTries, Delay, MaxBuf)
         {
-            /* Validate all arguments */
-            if (ComPort < 1 || ComPort > 6)
-                throw new ArgumentOutOfRangeException("ComPort", "Valid COMPORT range is 1-6");
+        }
 
-            if (Baud100 != 96 && Baud100 != 192 && Baud100 != 288 && Baud100 != 576 && Baud100 != 1152)
-                throw new ArgumentOutOfRangeException("Baud100", "Valid BAUD100 values are 96, 192, 288, 576 and 1152");
+        /// <summary>
+        /// Core constructor that accepts an ITransport. This is used by the public overloads
+        /// to preserve existing API while allowing transport injection.
+        /// </summary>
+        /// <param name="transport"></param>
+        /// <param name="MaxTries"></param>
+        /// <param name="Delay"></param>
+        /// <param name="MaxBuf"></param>
+        public Subroutines(ITransport transport, int MaxTries, int Delay, int MaxBuf)
+        {
+            if (transport == null)
+                throw new ArgumentNullException(nameof(transport));
 
             if (MaxTries <= 0)
                 throw new ArgumentOutOfRangeException("MaxTries", "MaxTries must be a positive");
@@ -52,24 +65,12 @@ namespace CmriSubroutines
             _delay = Delay;
             _maxBuf = MaxBuf;
 
-            CommObj = new System.IO.Ports.SerialPort();
-            if (CommObj.IsOpen)
-                CommObj.Close();
-
-            /* SET MScomm1 TO SELECTED PORT */
-            //The object name is formatted like "COM4"
-            CommObj.PortName = "COM" + ComPort;
-            CommObj.BaudRate = Baud100 * 100;  // the system needs the full baud rate
-            CommObj.Parity = System.IO.Ports.Parity.None;
-            CommObj.DataBits = 8;
-            CommObj.StopBits = System.IO.Ports.StopBits.Two;
-
-            /* INITIALIZE REMAINDER OF MSComm1 PROPERTIES */
-            CommObj.WriteBufferSize = _maxBuf;
-            CommObj.ReadBufferSize = _maxBuf;
-            CommObj.Open();
-            CommObj.DiscardInBuffer();
-            CommObj.DiscardOutBuffer();
+            _transport = transport;
+            _transport.ReadBufferSize = _maxBuf;
+            _transport.WriteBufferSize = _maxBuf;
+            _transport.Open();
+            _transport.DiscardInBuffer();
+            _transport.DiscardOutBuffer();
         }
 
         /// <summary>
@@ -242,7 +243,7 @@ namespace CmriSubroutines
             while (poll)
             {
                 // clears input buffer
-                CommObj.DiscardInBuffer();
+                _transport.DiscardInBuffer();
 
                 // Polls node
                 TransmitPackage(UA, 'P', inputs);
@@ -312,7 +313,7 @@ namespace CmriSubroutines
         public void Outputs(int UA, byte[] OutputBuffer)
         {
             // should be some validation here
-            CommObj.DiscardOutBuffer();
+            _transport.DiscardOutBuffer();
             TransmitPackage(UA, 'T', OutputBuffer); // 84 is message type "T"
         }
 
@@ -338,7 +339,7 @@ namespace CmriSubroutines
 
             int iXmitPointer = 5; // transmit buffer begins at 6th byte, first 5 are header info
 
-            CommObj.DiscardOutBuffer();
+            _transport.DiscardOutBuffer();
 
             /* Write data from output buffer to transmit buffer. */
             if (MessageType != 80) // 80 is a poll request, head to end message
@@ -361,9 +362,9 @@ namespace CmriSubroutines
             iXmitPointer++;
 
             /* Transmit message to railroad */
-            CommObj.Write(bTransmitBuffer, 0, iXmitPointer);
+            _transport.Write(bTransmitBuffer, 0, iXmitPointer);
 
-            while (CommObj.BytesToWrite > 0) // allows buffer to empty if it is taking long         
+            while (_transport.BytesToWrite > 0) // allows buffer to empty if it is taking long         
                 Thread.Sleep(10);
         }
 
@@ -377,10 +378,10 @@ namespace CmriSubroutines
             int tries = 0;
             do
             {
-                if (CommObj.BytesToRead > _maxBuf)
+                if (_transport.BytesToRead > _maxBuf)
                     throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + _maxBuf);
 
-                if (CommObj.BytesToRead != 0)
+                if (_transport.BytesToRead != 0)
                     break;
 
                 tries++;
@@ -389,7 +390,7 @@ namespace CmriSubroutines
             if (tries == _maxTries)
                 throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
 
-            return (byte)CommObj.ReadByte();
+            return (byte)_transport.ReadByte();
         }
     }
 
@@ -399,5 +400,162 @@ namespace CmriSubroutines
         MAXI24,
         MAXI32,
         CPNODE
+    }
+}
+
+namespace CmriSubroutines
+{
+    /// <summary>
+    /// Transport abstraction to allow swapping underlying communication mechanism.
+    /// </summary>
+    public interface ITransport : IDisposable
+    {
+        void Open();
+        void Close();
+        int ReadByte();
+        int Read(byte[] buffer, int offset, int count);
+        void Write(byte[] buffer, int offset, int count);
+        void DiscardInBuffer();
+        void DiscardOutBuffer();
+        int BytesToRead { get; }
+        int BytesToWrite { get; }
+        int ReadBufferSize { get; set; }
+        int WriteBufferSize { get; set; }
+    }
+
+    /// <summary>
+    /// Serial port transport that wraps System.IO.Ports.SerialPort
+    /// </summary>
+    public class SerialTransport : ITransport
+    {
+        private readonly SerialPort _port;
+
+        public SerialTransport(int comPort, int baud100, int bufferSize)
+        {
+            if (comPort < 1)
+                throw new ArgumentOutOfRangeException(nameof(comPort));
+
+            _port = new SerialPort("COM" + comPort)
+            {
+                BaudRate = baud100 * 100,
+                Parity = Parity.None,
+                DataBits = 8,
+                StopBits = StopBits.Two,
+                ReadBufferSize = bufferSize,
+                WriteBufferSize = bufferSize
+            };
+        }
+
+        public int ReadBufferSize { get => _port.ReadBufferSize; set => _port.ReadBufferSize = value; }
+        public int WriteBufferSize { get => _port.WriteBufferSize; set => _port.WriteBufferSize = value; }
+        public int BytesToRead => _port.BytesToRead;
+        public int BytesToWrite => _port.BytesToWrite;
+
+        public void Open() => _port.Open();
+        public void Close() { if (_port.IsOpen) _port.Close(); }
+        public void Dispose() => Close();
+        public void DiscardInBuffer() => _port.DiscardInBuffer();
+        public void DiscardOutBuffer() => _port.DiscardOutBuffer();
+        public int ReadByte() => _port.ReadByte();
+        public int Read(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count);
+        public void Write(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count);
+    }
+
+    /// <summary>
+    /// TCP transport using TcpClient. Supports basic raw TCP (ser2net raw mode).
+    /// </summary>
+    public class TcpTransport : ITransport
+    {
+        private readonly TcpClient _client = new TcpClient();
+        private NetworkStream _stream;
+        private readonly string _host;
+        private readonly int _port;
+        private int _readBufferSize = 4096;
+        private int _writeBufferSize = 4096;
+
+        public TcpTransport(string host, int port)
+        {
+            _host = host ?? throw new ArgumentNullException(nameof(host));
+            _port = port;
+        }
+
+        public int ReadBufferSize { get => _readBufferSize; set => _readBufferSize = value; }
+        public int WriteBufferSize { get => _writeBufferSize; set => _writeBufferSize = value; }
+        public int BytesToRead
+        {
+            get
+            {
+                if (_stream == null || !_stream.DataAvailable) return 0;
+                return _client.Available;
+            }
+        }
+
+        public int BytesToWrite => 0; // TcpClient doesn't expose pending bytes to write easily
+
+        public void Open()
+        {
+            _client.Connect(_host, _port);
+            _stream = _client.GetStream();
+        }
+
+        public void Close()
+        {
+            try { _stream?.Close(); } catch { }
+            try { _client?.Close(); } catch { }
+        }
+
+        public void Dispose() => Close();
+
+        public void DiscardInBuffer()
+        {
+            // consume available data
+            if (_stream == null) return;
+            while (_stream.DataAvailable)
+            {
+                var buf = new byte[ReadBufferSize];
+                _stream.Read(buf, 0, buf.Length);
+            }
+        }
+
+        public void DiscardOutBuffer()
+        {
+            // nothing to do for TCP
+        }
+
+        public int ReadByte()
+        {
+            if (_stream == null) throw new InvalidOperationException("Transport not open");
+            int val = _stream.ReadByte();
+            return val;
+        }
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            if (_stream == null) throw new InvalidOperationException("Transport not open");
+            return _stream.Read(buffer, offset, count);
+        }
+
+        public void Write(byte[] buffer, int offset, int count)
+        {
+            if (_stream == null) throw new InvalidOperationException("Transport not open");
+            _stream.Write(buffer, offset, count);
+            _stream.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Simple factory to create transports based on a config object.
+    /// </summary>
+    public static class TransportFactory
+    {
+        public static ITransport CreateSerial(int comPort, int baud100, int bufferSize)
+        {
+            return new SerialTransport(comPort, baud100, bufferSize);
+        }
+
+        public static ITransport CreateTcp(string host, int port)
+        {
+            return new TcpTransport(host, port);
+        }
     }
 }
