@@ -1,5 +1,7 @@
 using System;
+using System.Net;
 using System.Net.Sockets;
+using System.Linq;
 
 namespace CmriSubroutines.Transports
 {
@@ -24,8 +26,9 @@ namespace CmriSubroutines.Transports
         {
             get
             {
-                if (_stream == null || !_stream.DataAvailable) return 0;
-                return _client.Available;
+                if (_stream == null) return 0;
+                try { return _client.Available; }
+                catch { return 0; }
             }
         }
 
@@ -33,7 +36,16 @@ namespace CmriSubroutines.Transports
 
         public void Open()
         {
-            _client.Connect(_host, _port);
+            var addresses = Dns.GetHostAddresses(_host);
+            if (addresses == null || addresses.Length == 0)
+                throw new SocketException((int)SocketError.HostNotFound);
+
+            var ip = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses[0];
+
+            var connectTask = _client.ConnectAsync(ip, _port);
+            if (!connectTask.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException($"Connect to {_host}:{_port} timed out");
+
             _stream = _client.GetStream();
         }
 
@@ -47,13 +59,17 @@ namespace CmriSubroutines.Transports
 
         public void DiscardInBuffer()
         {
-            // consume available data
             if (_stream == null) return;
-            while (_stream.DataAvailable)
+            try
             {
-                var buf = new byte[ReadBufferSize];
-                _stream.Read(buf, 0, buf.Length);
+                while (_client.Available > 0)
+                {
+                    var buf = new byte[ReadBufferSize];
+                    int toRead = Math.Min(_client.Available, buf.Length);
+                    _stream.Read(buf, 0, toRead);
+                }
             }
+            catch { }
         }
 
         public void DiscardOutBuffer()

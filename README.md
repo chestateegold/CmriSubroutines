@@ -6,7 +6,7 @@ These subroutines support the use of the [SMINI](https://www.jlcenterprises.net/
 
 # Getting Started
 
-In order to use these subroutines, clone this respository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
+In order to use these subroutines, clone this repository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
 
 ## Initiating a COMPORT connection
 
@@ -72,6 +72,45 @@ byte[] outputs = new byte []{ 0b00000000, 0b11111111, 0b01010101 };
 subRoutines.Outputs(nodeAddress, outputs);
 ```
 
+## Using the TCP transport (ser2net)
+
+This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Use `TransportFactory.CreateTcp(host, port)` to create the transport and pass it into `Subroutines`.
+
+Example client usage:
+
+```csharp
+using CmriSubroutines;
+using CmriSubroutines.Transports;
+
+// Create a TCP transport connected to your Pi's ser2net accepter
+ITransport transport = TransportFactory.CreateTcp("CmriPi", 3333);
+
+using (transport)
+{
+    // MaxTries, Delay, MaxBuf remain available; MaxTries acts as a read-poll timeout budget
+    var sub = new Subroutines(transport, MaxTries: 3000, Delay: 0, MaxBuf: 64);
+
+    sub.Init(0, NodeType.SMINI);
+    var inputs = sub.Inputs(0);
+    sub.Outputs(0, new byte[] { 0, 0, 0 });
+}
+```
+
+Recommended `ser2net` configuration (Pi-side) to expose `/dev/ttyUSB0` on TCP port 3333:
+
+```
+connection: &conn1
+    accepter: tcp,0.0.0.0,3333
+    connector: serialdev,/dev/ttyUSB0,9600n82
+```
+
+Troubleshooting notes:
+- Hostname/address family: if the host name (e.g. `CmriPi`) resolves to an IPv6 address but `ser2net` is listening on IPv4, use the Pi's IPv4 address (e.g. `192.168.1.42`) or configure name resolution for the correct family.
+- Port/firewall: verify the port is reachable from the client machine (PowerShell: `Test-NetConnection -ComputerName CmriPi -Port 3333`).
+- `MaxTries` and latency: the library polls for bytes and uses `MaxTries` as a budget. Increase `MaxTries` if your network or ser2net responses are slow.
+- Verify data: if `Init` succeeds but `Inputs` times out, capture traffic on the Pi (`tcpdump`) or check `ser2net` logs to confirm data is being sent.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
+

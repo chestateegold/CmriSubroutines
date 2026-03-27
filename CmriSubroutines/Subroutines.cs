@@ -20,7 +20,7 @@ namespace CmriSubroutines
         private readonly int _maxBuf;
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 1500 max tries, 0 delay and 64 maxbuf
+        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 3000 max tries, 0 delay and 64 maxbuf
         /// </summary>
         /// <param name="ComPort"></param>
         public Subroutines(int ComPort) : this(ComPort, 1152, 3000, 0, 64)
@@ -386,6 +386,7 @@ namespace CmriSubroutines
                     break;
 
                 tries++;
+                Thread.Sleep(1);
             } while (tries < _maxTries);
 
             if (tries == _maxTries)
