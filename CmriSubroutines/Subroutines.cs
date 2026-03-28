@@ -15,12 +15,12 @@ namespace CmriSubroutines
     public class Subroutines
     {
         private ITransport _transport;
-        private readonly int _maxTries;
+        private readonly int _timeoutMs;
         private readonly int _delay;
         private readonly int _maxBuf;
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 3000 max tries, 0 delay and 64 maxbuf
+        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 3000ms timeout, 0 delay and 64 maxbuf
         /// </summary>
         /// <param name="ComPort"></param>
         public Subroutines(int ComPort) : this(ComPort, 1152, 3000, 0, 64)
@@ -32,11 +32,11 @@ namespace CmriSubroutines
         /// </summary>
         /// <param name="ComPort"></param>
         /// <param name="Baud100"></param>
-        /// <param name="MaxTries"></param>
+        /// <param name="TimeoutMs"></param>
         /// <param name="Delay"></param>
         /// <param name="MaxBuf"></param>
-        public Subroutines(int ComPort, int Baud100, int MaxTries, int Delay, int MaxBuf)
-            : this(new SerialTransport(ComPort, Baud100, MaxBuf), MaxTries, Delay, MaxBuf)
+        public Subroutines(int ComPort, int Baud100, int TimeoutMs, int Delay, int MaxBuf)
+            : this(new SerialTransport(ComPort, Baud100, MaxBuf), TimeoutMs, Delay, MaxBuf)
         {
         }
 
@@ -44,17 +44,17 @@ namespace CmriSubroutines
         /// Core constructor that accepts an ITransport. This is used by the public overloads
         /// to preserve existing API while allowing transport injection.
         /// </summary>
-        /// <param name="transport"></param>
-        /// <param name="MaxTries"></param>
+        /// <param name="Transport"></param>
+        /// <param name="TimeoutMs"></param>
         /// <param name="Delay"></param>
         /// <param name="MaxBuf"></param>
-        public Subroutines(ITransport transport, int MaxTries, int Delay, int MaxBuf)
+        public Subroutines(ITransport Transport, int TimeoutMs, int Delay, int MaxBuf)
         {
-            if (transport == null)
-                throw new ArgumentNullException(nameof(transport));
+            if (Transport == null)
+                throw new ArgumentNullException(nameof(Transport));
 
-            if (MaxTries <= 0)
-                throw new ArgumentOutOfRangeException("MaxTries", "MaxTries must be a positive");
+            if (TimeoutMs <= 0)
+                throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
 
             if (Delay < 0)
                 throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
@@ -62,11 +62,11 @@ namespace CmriSubroutines
             if (MaxBuf <= 0)
                 throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
 
-            _maxTries = MaxTries;
+            _timeoutMs = TimeoutMs;
             _delay = Delay;
             _maxBuf = MaxBuf;
 
-            _transport = transport;
+            _transport = Transport;
             _transport.ReadBufferSize = _maxBuf;
             _transport.WriteBufferSize = _maxBuf;
             _transport.Open();
@@ -376,23 +376,39 @@ namespace CmriSubroutines
         /// <returns></returns>
         private byte ReceiveByte(int UA)
         {
-            int tries = 0;
-            do
+            // Attempt a blocking read that honors transport timeout settings. Fall back to polling if transport
+            // does not support timeouts.
+            try
             {
-                if (_transport.BytesToRead > _maxBuf)
-                    throw new OverflowException("Node " + UA + " bytes to read is over MaxBuf value of " + _maxBuf);
+                // If transport reports available bytes, read immediately
+                if (_transport.BytesToRead > 0)
+                    return (byte)_transport.ReadByte();
 
-                if (_transport.BytesToRead != 0)
-                    break;
+                // Otherwise perform a blocking read with a timeout budget derived from _maxTries.
+                // _timeoutMs represents a millisecond budget when using network transport.
+                int timeoutMs = _timeoutMs;
+                int elapsed = 0;
+                int pollInterval = 10; // ms
 
-                tries++;
-                Thread.Sleep(1);
-            } while (tries < _maxTries);
+                while (elapsed < timeoutMs)
+                {
+                    if (_transport.BytesToRead > 0)
+                        return (byte)_transport.ReadByte();
 
-            if (tries == _maxTries)
-                throw new TimeoutException("INPUT TRIES EXCEEDED " + _maxTries + " NODE = " + UA + " ABORTING INPUT");
+                    Thread.Sleep(pollInterval);
+                    elapsed += pollInterval;
+                }
 
-            return (byte)_transport.ReadByte();
+                throw new TimeoutException("INPUT TIMEOUT EXCEEDED " + _timeoutMs + " NODE = " + UA + " ABORTING INPUT");
+            }
+            catch (TimeoutException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new IOException("Error reading byte from transport", ex);
+            }
         }
     }
 

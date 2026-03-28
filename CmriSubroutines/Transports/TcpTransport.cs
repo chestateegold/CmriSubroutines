@@ -13,6 +13,8 @@ namespace CmriSubroutines.Transports
         private readonly int _port;
         private int _readBufferSize = 4096;
         private int _writeBufferSize = 4096;
+        private int _readTimeoutMs = 2000;
+        private int _writeTimeoutMs = 2000;
 
         public TcpTransport(string host, int port)
         {
@@ -34,6 +36,9 @@ namespace CmriSubroutines.Transports
 
         public int BytesToWrite => 0; // TcpClient doesn't expose pending bytes to write easily
 
+        public int ReadTimeoutMs { get => _readTimeoutMs; set => _readTimeoutMs = value; }
+        public int WriteTimeoutMs { get => _writeTimeoutMs; set => _writeTimeoutMs = value; }
+
         public void Open()
         {
             var addresses = Dns.GetHostAddresses(_host);
@@ -47,6 +52,13 @@ namespace CmriSubroutines.Transports
                 throw new TimeoutException($"Connect to {_host}:{_port} timed out");
 
             _stream = _client.GetStream();
+            // apply timeouts to underlying socket
+            try
+            {
+                _client.ReceiveTimeout = _readTimeoutMs;
+                _client.SendTimeout = _writeTimeoutMs;
+            }
+            catch { }
         }
 
         public void Close()
@@ -66,7 +78,8 @@ namespace CmriSubroutines.Transports
                 {
                     var buf = new byte[ReadBufferSize];
                     int toRead = Math.Min(_client.Available, buf.Length);
-                    _stream.Read(buf, 0, toRead);
+                    int read = _stream.Read(buf, 0, toRead);
+                    if (read <= 0) break;
                 }
             }
             catch { }
@@ -80,6 +93,7 @@ namespace CmriSubroutines.Transports
         public int ReadByte()
         {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
+            // NetworkStream.ReadByte blocks and will respect the socket ReceiveTimeout
             int val = _stream.ReadByte();
             return val;
         }

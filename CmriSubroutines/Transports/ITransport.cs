@@ -15,5 +15,8 @@ namespace CmriSubroutines.Transports
         int BytesToWrite { get; }
         int ReadBufferSize { get; set; }
         int WriteBufferSize { get; set; }
+        // Read/Write timeouts in milliseconds. Transport implementations should honor these values.
+        int ReadTimeoutMs { get; set; }
+        int WriteTimeoutMs { get; set; }
     }
 }

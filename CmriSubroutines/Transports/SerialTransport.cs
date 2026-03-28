@@ -6,6 +6,8 @@ namespace CmriSubroutines.Transports
     public class SerialTransport : ITransport
     {
         private readonly SerialPort _port;
+        private int _readTimeoutMs = 2000;
+        private int _writeTimeoutMs = 2000;
 
         public SerialTransport(int comPort, int baud100, int bufferSize)
         {
@@ -27,6 +29,8 @@ namespace CmriSubroutines.Transports
         public int WriteBufferSize { get => _port.WriteBufferSize; set => _port.WriteBufferSize = value; }
         public int BytesToRead => _port.BytesToRead;
         public int BytesToWrite => _port.BytesToWrite;
+        public int ReadTimeoutMs { get => _readTimeoutMs; set { _readTimeoutMs = value; _port.ReadTimeout = value; } }
+        public int WriteTimeoutMs { get => _writeTimeoutMs; set { _writeTimeoutMs = value; _port.WriteTimeout = value; } }
 
         public void Open() => _port.Open();
         public void Close() { if (_port.IsOpen) _port.Close(); }

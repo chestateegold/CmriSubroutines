@@ -26,10 +26,10 @@ using CmriSubRoutines;
 
 int Port = 5;
 int Baud100 = 576;
-int MaxTries = 5000;
+int timeoutMs = 5000;
 int Delay = 50;
 int MaxBuf = 64;
-SubRoutines subRoutines = new SubRoutines(Port, Baud100, MaxTries, Delay, MaxBuf);
+SubRoutines subRoutines = new SubRoutines(Port, Baud100, timeoutMs, Delay, MaxBuf);
 ```
 
 ## Initiating a node
@@ -85,8 +85,8 @@ using CmriSubroutines.Transports;
 // Create a TCP transport connected to your Pi's ser2net accepter
 ITransport transport = TransportFactory.CreateTcp("CmriPi", 3333);
 
-// MaxTries, Delay, MaxBuf remain available; MaxTries acts as a read-poll timeout budget
-var sub = new Subroutines(transport, MaxTries: 3000, Delay: 0, MaxBuf: 64);
+    // timeoutMs, Delay, MaxBuf remain available; timeoutMs acts as a read timeout budget (ms)
+    var sub = new Subroutines(transport, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
 
 sub.Init(0, NodeType.SMINI);
 var inputs = sub.Inputs(0);
