@@ -78,22 +78,20 @@ This library includes a TCP transport that connects to a serial device exposed b
 
 Example client usage:
 
-```csharp
+```C#
 using CmriSubroutines;
 using CmriSubroutines.Transports;
 
 // Create a TCP transport connected to your Pi's ser2net accepter
 ITransport transport = TransportFactory.CreateTcp("CmriPi", 3333);
 
-using (transport)
-{
-    // MaxTries, Delay, MaxBuf remain available; MaxTries acts as a read-poll timeout budget
-    var sub = new Subroutines(transport, MaxTries: 3000, Delay: 0, MaxBuf: 64);
+// MaxTries, Delay, MaxBuf remain available; MaxTries acts as a read-poll timeout budget
+var sub = new Subroutines(transport, MaxTries: 3000, Delay: 0, MaxBuf: 64);
 
-    sub.Init(0, NodeType.SMINI);
-    var inputs = sub.Inputs(0);
-    sub.Outputs(0, new byte[] { 0, 0, 0 });
-}
+sub.Init(0, NodeType.SMINI);
+var inputs = sub.Inputs(0);
+sub.Outputs(0, new byte[] { 0, 0, 0 });
+
 ```
 
 Recommended `ser2net` configuration (Pi-side) to expose `/dev/ttyUSB0` on TCP port 3333:
@@ -103,12 +101,6 @@ connection: &conn1
     accepter: tcp,0.0.0.0,3333
     connector: serialdev,/dev/ttyUSB0,9600n82
 ```
-
-Troubleshooting notes:
-- Hostname/address family: if the host name (e.g. `CmriPi`) resolves to an IPv6 address but `ser2net` is listening on IPv4, use the Pi's IPv4 address (e.g. `192.168.1.42`) or configure name resolution for the correct family.
-- Port/firewall: verify the port is reachable from the client machine (PowerShell: `Test-NetConnection -ComputerName CmriPi -Port 3333`).
-- `MaxTries` and latency: the library polls for bytes and uses `MaxTries` as a budget. Increase `MaxTries` if your network or ser2net responses are slow.
-- Verify data: if `Init` succeeds but `Inputs` times out, capture traffic on the Pi (`tcpdump`) or check `ser2net` logs to confirm data is being sent.
 
 ## License
 
