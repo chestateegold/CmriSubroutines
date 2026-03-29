@@ -1,5 +1,7 @@
 using System;
 using System.IO.Ports;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CmriSubroutines.Transports
 {
@@ -34,11 +36,35 @@ namespace CmriSubroutines.Transports
 
         public void Open() => _port.Open();
         public void Close() { if (_port.IsOpen) _port.Close(); }
+        public Task OpenAsync(CancellationToken cancellationToken = default)
+        {
+            Open();
+            return Task.CompletedTask;
+        }
+
+        public Task CloseAsync(CancellationToken cancellationToken = default)
+        {
+            Close();
+            return Task.CompletedTask;
+        }
         public void Dispose() => Close();
         public void DiscardInBuffer() => _port.DiscardInBuffer();
         public void DiscardOutBuffer() => _port.DiscardOutBuffer();
         public int ReadByte() => _port.ReadByte();
+        public Task<int> ReadByteAsync(CancellationToken cancellationToken = default)
+        {
+            // SerialPort doesn't provide a true async API in older frameworks; wrap the blocking call.
+            return Task.Run(() => ReadByte(), cancellationToken);
+        }
         public int Read(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count);
+        public Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        {
+            return Task.Run(() => Read(buffer, offset, count), cancellationToken);
+        }
         public void Write(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count);
+        public Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        {
+            return Task.Run(() => Write(buffer, offset, count), cancellationToken);
+        }
     }
 }
