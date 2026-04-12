@@ -74,7 +74,7 @@ subRoutines.Outputs(nodeAddress, outputs);
 
 ## Using the TCP transport (ser2net)
 
-This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Use `TransportFactory.CreateTcp(host, port)` to create the transport and pass it into `Subroutines`.
+This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Create a `TcpTransport` and pass it into `Subroutines`.
 
 Example client usage:
 
@@ -83,7 +83,7 @@ using CmriSubroutines;
 using CmriSubroutines.Transports;
 
 // Create a TCP transport connected to your Pi's ser2net accepter
-ITransport transport = TransportFactory.CreateTcp("CmriPi", 3333);
+ITransport transport = new TcpTransport("CmriPi", 3333);
 
     // timeoutMs, Delay, MaxBuf remain available; timeoutMs acts as a read timeout budget (ms)
     var sub = new Subroutines(transport, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
@@ -101,6 +101,36 @@ connection: &conn1
     accepter: tcp,0.0.0.0,3333
     connector: serialdev,/dev/ttyUSB0,9600n82
 ```
+
+
+## Using the in-memory transport (for tests)
+
+A `MemoryTransport` is provided for unit testing and offline development. It implements `ITransport` and lets you preload bytes that `Subroutines` will read and capture all bytes written by the library so tests can assert on them.
+
+Basic usage:
+
+```csharp
+using CmriSubroutines.Transports;
+
+// create empty memory transport and Subroutines
+var mem = new MemoryTransport();
+var sub = new CmriSubroutines.Subroutines(mem, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
+
+// enqueue bytes the node would send (STX=2, UA, 'R', data..., ETX=3)
+mem.EnqueueRead(2, (byte)(0 + 65), (byte)'R', 0, 0, 0, 3);
+
+// call async or sync APIs
+var inputs = await sub.InputsAsync(0);
+
+// inspect what was written to the transport
+var written = mem.GetWrittenData();
+```
+
+Notes:
+- `EnqueueRead` accepts a sequence of bytes to be returned by subsequent reads.
+- `GetWrittenData` returns the bytes the library wrote to the transport (useful to validate framing/escaping).
+- `Subroutines` calls `DiscardInBuffer()` in its constructor, so enqueue read bytes after creating `Subroutines` or avoid constructor discard in tests by creating the transport and enqueuing after construction.
+
 
 ## License
 
