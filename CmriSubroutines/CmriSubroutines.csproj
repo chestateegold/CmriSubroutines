@@ -44,9 +44,9 @@
     <Compile Include="Subroutines.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Transports\ITransport.cs" />
+    <Compile Include="Transports\MemoryTransport.cs" />
     <Compile Include="Transports\SerialTransport.cs" />
     <Compile Include="Transports\TcpTransport.cs" />
-    <Compile Include="Transports\TransportFactory.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
