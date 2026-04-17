@@ -11,12 +11,39 @@ namespace CmriSubroutines.Transports
         private int _readTimeoutMs = 2000;
         private int _writeTimeoutMs = 2000;
 
-        public SerialTransport(int comPort, int baud100, int bufferSize)
+        private static string NormalizePortName(string portName)
+        {
+            if (string.IsNullOrWhiteSpace(portName))
+                throw new ArgumentNullException(nameof(portName));
+
+            portName = portName.Trim();
+
+            if (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || portName.Contains("/") || portName.Contains("\\"))
+                return portName;
+
+            int portNumber;
+            if (int.TryParse(portName, out portNumber))
+                return "COM" + portNumber;
+
+            return portName;
+        }
+
+        private static string NormalizeComPortName(int comPort)
         {
             if (comPort < 1)
                 throw new ArgumentOutOfRangeException(nameof(comPort));
 
-            _port = new SerialPort("COM" + comPort)
+            return "COM" + comPort;
+        }
+
+        public SerialTransport(int comPort, int baud100, int bufferSize)
+            : this(NormalizeComPortName(comPort), baud100, bufferSize)
+        {
+        }
+
+        public SerialTransport(string portName, int baud100, int bufferSize)
+        {
+            _port = new SerialPort(NormalizePortName(portName))
             {
                 BaudRate = baud100 * 100,
                 Parity = Parity.None,

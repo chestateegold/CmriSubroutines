@@ -28,6 +28,14 @@ namespace CmriSubroutines
         }
 
         /// <summary>
+        /// Initializes the Serial Port Communications Object using a platform-specific port name such as /dev/ttyUSB0.
+        /// </summary>
+        /// <param name="PortName"></param>
+        public Subroutines(string PortName) : this(PortName, 1152, 3000, 0, 64)
+        {
+        }
+
+        /// <summary>
         /// Async version of ReceiveByte which waits up to the configured timeout budget and supports cancellation.
         /// </summary>
         private async Task<byte> ReceiveByteAsync(int UA, CancellationToken cancellationToken = default)
@@ -246,6 +254,19 @@ namespace CmriSubroutines
         /// <param name="MaxBuf"></param>
         public Subroutines(int ComPort, int Baud100, int TimeoutMs, int Delay, int MaxBuf)
             : this(new SerialTransport(ComPort, Baud100, MaxBuf), TimeoutMs, Delay, MaxBuf)
+        {
+        }
+
+        /// <summary>
+        /// Initializes the Serial Port Communications Object with explicit values using a platform-specific port name.
+        /// </summary>
+        /// <param name="PortName"></param>
+        /// <param name="Baud100"></param>
+        /// <param name="TimeoutMs"></param>
+        /// <param name="Delay"></param>
+        /// <param name="MaxBuf"></param>
+        public Subroutines(string PortName, int Baud100, int TimeoutMs, int Delay, int MaxBuf)
+            : this(new SerialTransport(PortName, Baud100, MaxBuf), TimeoutMs, Delay, MaxBuf)
         {
         }
 
