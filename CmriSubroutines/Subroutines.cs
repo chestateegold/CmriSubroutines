@@ -1,13 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
-using System.IO.Ports;
 using CmriSubroutines.Transports;
 
 namespace CmriSubroutines
@@ -174,6 +170,53 @@ namespace CmriSubroutines
             await TransmitPackageAsync(UA, 'I', outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
+        private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
+        {
+            if (UA > 127)
+                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
+
+            byte[] ct = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
+
+            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
+            {
+                if (CT == null || CT.Length == 0)
+                    throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
+            }
+
+            if (nodeType == NodeType.SMINI && ct.Length != 6)
+                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
+
+            byte[] outputBuffer = new byte[3];
+
+            switch (nodeType)
+            {
+                case NodeType.SMINI:
+                    outputBuffer[0] = (byte)'M';
+                    break;
+                case NodeType.MAXI24:
+                    outputBuffer[0] = (byte)'N';
+                    break;
+                case NodeType.MAXI32:
+                    outputBuffer[0] = (byte)'X';
+                    break;
+                case NodeType.CPNODE:
+                    outputBuffer[0] = (byte)'C';
+                    break;
+            }
+
+            outputBuffer[1] = (byte)(_delay / 256);
+            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
+
+            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
+                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(ct)).ToArray();
+            else if (nodeType == NodeType.SMINI)
+                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(ct)).ToArray();
+            else if (nodeType == NodeType.CPNODE)
+                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
+
+            return outputBuffer;
+        }
+
         /// <summary>
         /// Async Inputs
         /// </summary>
@@ -181,63 +224,57 @@ namespace CmriSubroutines
         {
             byte[] inputs = new byte[3];
 
-            bool poll = true;
-            while (poll)
+            while (true)
             {
                 _transport.DiscardInBuffer();
 
                 await TransmitPackageAsync(UA, 'P', inputs, cancellationToken).ConfigureAwait(false);
 
-                bool stx = false;
-                while (!stx)
+                await TryReadInputsHeaderAsync(UA, cancellationToken).ConfigureAwait(false);
+
+                for (int i = 0; i < 3; i++)
                 {
                     byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
 
-                    if (iInByte != 2)
-                        continue;
-                    else
-                        poll = false;
+                    if (iInByte == 2)
+                        throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
+                    else if (iInByte == 3)
+                        throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
+                    else if (iInByte == 16)
+                        iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
 
-                    iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
-                    if (iInByte - 65 != UA)
-                    {
-                        Console.WriteLine("ERROR; Received bad UA = " + iInByte);
-                        break;
-                    }
-
-                    iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
-                    if (iInByte != 82)
-                    {
-                        Console.WriteLine("Error received not = R for UA = " + UA);
-                        continue;
-                    }
-
-                    stx = true;
+                    inputs[i] = iInByte;
                 }
 
-                if (stx)
-                {
-                    for (int i = 0; i < 3; i++)
-                    {
-                        byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+                byte etx = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+                if (etx != 3)
+                    Console.Error.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
 
-                        if (iInByte == 2)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
-                        else if (iInByte == 3)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
-                        else if (iInByte == 16)
-                            iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+                return inputs;
+            }
+        }
 
-                        inputs[i] = iInByte;
-                    }
+        private async Task<bool> TryReadInputsHeaderAsync(int UA, CancellationToken cancellationToken, int headerTimeoutMs = 3000)
+        {
+            var start = System.Diagnostics.Stopwatch.StartNew();
 
-                    byte etx = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
-                    if (etx != 3)
-                        Console.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
-                }
+            while (start.ElapsedMilliseconds < headerTimeoutMs)
+            {                   
+                byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+
+                if (iInByte != 2)
+                    continue;
+
+                iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+                if (iInByte - 65 != UA)
+                    throw new InvalidDataException($"ERROR; Received bad UA = {iInByte}");
+
+                iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
+                if (iInByte != 82)
+                    throw new InvalidDataException($"Error received not = R for UA = {UA}");
             }
 
-            return inputs;
+            throw new TimeoutException($"Timed out waiting for CMRI STX for UA = {UA}");
         }
 
         /// <summary>
@@ -378,53 +415,6 @@ namespace CmriSubroutines
         public void Outputs(int UA, byte[] OutputBuffer)
         {
             OutputsAsync(UA, OutputBuffer).GetAwaiter().GetResult();
-        }
-
-        private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
-        {
-            if (UA > 127)
-                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
-
-            byte[] ct = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
-
-            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
-            {
-                if (CT == null || CT.Length == 0)
-                    throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
-            }
-
-            if (nodeType == NodeType.SMINI && ct.Length != 6)
-                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
-
-            byte[] outputBuffer = new byte[3];
-
-            switch (nodeType)
-            {
-                case NodeType.SMINI:
-                    outputBuffer[0] = (byte)'M';
-                    break;
-                case NodeType.MAXI24:
-                    outputBuffer[0] = (byte)'N';
-                    break;
-                case NodeType.MAXI32:
-                    outputBuffer[0] = (byte)'X';
-                    break;
-                case NodeType.CPNODE:
-                    outputBuffer[0] = (byte)'C';
-                    break;
-            }
-
-            outputBuffer[1] = (byte)(_delay / 256);
-            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
-
-            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
-                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(ct)).ToArray();
-            else if (nodeType == NodeType.SMINI)
-                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(ct)).ToArray();
-            else if (nodeType == NodeType.CPNODE)
-                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
-
-            return outputBuffer;
         }
     }
 
