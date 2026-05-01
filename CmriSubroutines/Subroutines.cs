@@ -20,19 +20,64 @@ namespace CmriSubroutines
         private readonly int _maxBuf;
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object with default 1152 baud rate, 3000ms timeout, 0 delay and 64 maxbuf
+        /// Creates a <see cref="Subroutines"/> instance backed by a serial transport using a COM port number.
         /// </summary>
-        /// <param name="ComPort"></param>
-        public Subroutines(int ComPort) : this(ComPort, 1152, 3000, 0, 64)
+        public static Subroutines CreateSerial(int comPort, int baud100 = 1152, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
+            return new Subroutines(new SerialTransport(comPort, baud100, maxBuf), timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object using a platform-specific port name such as /dev/ttyUSB0.
+        /// Creates a <see cref="Subroutines"/> instance backed by a serial transport using a platform-specific port name.
         /// </summary>
-        /// <param name="PortName"></param>
-        public Subroutines(string PortName) : this(PortName, 1152, 3000, 0, 64)
+        public static Subroutines CreateSerial(string portName, int baud100 = 1152, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
+            return new Subroutines(new SerialTransport(portName, baud100, maxBuf), timeoutMs, delay, maxBuf);
+        }
+
+        /// <summary>
+        /// Creates a <see cref="Subroutines"/> instance backed by a TCP transport.
+        /// </summary>
+        public static Subroutines CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        {
+            return new Subroutines(new TcpTransport(host, port), timeoutMs, delay, maxBuf);
+        }
+
+        /// <summary>
+        /// Creates a <see cref="Subroutines"/> instance backed by an in-memory transport.
+        /// </summary>
+        public static Subroutines CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        {
+            return new Subroutines(initialReadBuffer == null ? new MemoryTransport() : new MemoryTransport(initialReadBuffer), timeoutMs, delay, maxBuf);
+        }
+
+        /// <summary>
+        /// Core constructor that accepts an ITransport.
+        /// </summary>
+        public Subroutines(ITransport Transport, int TimeoutMs, int Delay, int MaxBuf)
+        {
+            if (Transport == null)
+                throw new ArgumentNullException(nameof(Transport));
+
+            if (TimeoutMs <= 0)
+                throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
+
+            if (Delay < 0)
+                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
+
+            if (MaxBuf <= 0)
+                throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
+
+            _timeoutMs = TimeoutMs;
+            _delay = Delay;
+            _maxBuf = MaxBuf;
+
+            _transport = Transport;
+            _transport.ReadBufferSize = _maxBuf;
+            _transport.WriteBufferSize = _maxBuf;
+            _transport.Open();
+            _transport.DiscardInBuffer();
+            _transport.DiscardOutBuffer();
         }
 
         /// <summary>
@@ -125,47 +170,7 @@ namespace CmriSubroutines
         /// </summary>
         public async Task InitAsync(int UA, NodeType NodeType, byte[] CT = null, CancellationToken cancellationToken = default)
         {
-            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-            {
-                throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
-            }
-
-            byte[] ct = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
-
-            // validation similar to sync Init
-            if (UA > 127)
-                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
-
-            if (NodeType == NodeType.SMINI && ct.Length != 6)
-                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
-
-            byte[] outputBuffer = new byte[3];
-            switch (NodeType)
-            {
-                case NodeType.SMINI:
-                    outputBuffer[0] = (byte)'M';
-                    break;
-                case NodeType.MAXI24:
-                    outputBuffer[0] = (byte)'N';
-                    break;
-                case NodeType.MAXI32:
-                    outputBuffer[0] = (byte)'X';
-                    break;
-                case NodeType.CPNODE:
-                    outputBuffer[0] = (byte)'C';
-                    break;
-            }
-
-            outputBuffer[1] = (byte)(_delay / 256);
-            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
-
-            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(ct)).ToArray();
-            else if (NodeType == NodeType.SMINI)
-                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(ct)).ToArray();
-            else if (NodeType == NodeType.CPNODE)
-                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
-
+            byte[] outputBuffer = BuildInitBuffer(UA, NodeType, CT);
             await TransmitPackageAsync(UA, 'I', outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
@@ -245,79 +250,13 @@ namespace CmriSubroutines
         }
 
         /// <summary>
-        /// Initializes the Serial Port Communications Object with explicit values
-        /// </summary>
-        /// <param name="ComPort"></param>
-        /// <param name="Baud100"></param>
-        /// <param name="TimeoutMs"></param>
-        /// <param name="Delay"></param>
-        /// <param name="MaxBuf"></param>
-        public Subroutines(int ComPort, int Baud100, int TimeoutMs, int Delay, int MaxBuf)
-            : this(new SerialTransport(ComPort, Baud100, MaxBuf), TimeoutMs, Delay, MaxBuf)
-        {
-        }
-
-        /// <summary>
-        /// Initializes the Serial Port Communications Object with explicit values using a platform-specific port name.
-        /// </summary>
-        /// <param name="PortName"></param>
-        /// <param name="Baud100"></param>
-        /// <param name="TimeoutMs"></param>
-        /// <param name="Delay"></param>
-        /// <param name="MaxBuf"></param>
-        public Subroutines(string PortName, int Baud100, int TimeoutMs, int Delay, int MaxBuf)
-            : this(new SerialTransport(PortName, Baud100, MaxBuf), TimeoutMs, Delay, MaxBuf)
-        {
-        }
-
-        /// <summary>
-        /// Core constructor that accepts an ITransport. This is used by the public overloads
-        /// to preserve existing API while allowing transport injection.
-        /// </summary>
-        /// <param name="Transport"></param>
-        /// <param name="TimeoutMs"></param>
-        /// <param name="Delay"></param>
-        /// <param name="MaxBuf"></param>
-        public Subroutines(ITransport Transport, int TimeoutMs, int Delay, int MaxBuf)
-        {
-            if (Transport == null)
-                throw new ArgumentNullException(nameof(Transport));
-
-            if (TimeoutMs <= 0)
-                throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
-
-            if (Delay < 0)
-                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
-
-            if (MaxBuf <= 0)
-                throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
-
-            _timeoutMs = TimeoutMs;
-            _delay = Delay;
-            _maxBuf = MaxBuf;
-
-            _transport = Transport;
-            _transport.ReadBufferSize = _maxBuf;
-            _transport.WriteBufferSize = _maxBuf;
-            _transport.Open();
-            _transport.DiscardInBuffer();
-            _transport.DiscardOutBuffer();
-        }
-
-        /// <summary>
         /// Initializes specified node.
         /// </summary>
         /// <param name="UA">Node Address</param>
         /// <param name="NodeType"></param>
         public void Init(int UA, NodeType NodeType)
         {
-            // ensure this isn't a maxi. we are required to have a CT array with maxi
-            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-            {
-                throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
-            }
-
-            Init(UA, NodeType, new byte[] { 0, 0, 0, 0, 0, 0 });
+            InitAsync(UA, NodeType, new byte[] { 0, 0, 0, 0, 0, 0 }).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -328,45 +267,7 @@ namespace CmriSubroutines
         /// <param name="CT">Card type array for MAXI nodes and SMINI 2 lead signals</param>
         public void Init(int UA, NodeType NodeType, byte[] CT)
         {
-            // validation
-            if (UA > 127)
-                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
-
-            if ((NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32) && (CT == null || CT.Length == 0))
-                throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
-
-            if (NodeType == NodeType.SMINI && CT.Length != 6)
-                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
-
-            // create first part of buffer to be sent to railroad
-            byte[] outputBuffer = new byte[3];
-
-            switch (NodeType) // set node definition parameter
-            {
-                case NodeType.SMINI:
-                    outputBuffer[0] = (byte)'M';
-                    break;
-                case NodeType.MAXI24:
-                    outputBuffer[0] = (byte)'N';
-                    break;
-                case NodeType.MAXI32:
-                    outputBuffer[0] = (byte)'X';
-                    break;
-                case NodeType.CPNODE:
-                    outputBuffer[0] = (byte)'C';
-                    break;
-            }
-            outputBuffer[1] = (byte)(_delay / 256);
-            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
-
-            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
-                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(CT)).ToArray();
-            else if (NodeType == NodeType.SMINI)
-                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(CT)).ToArray();
-            else if (NodeType == NodeType.CPNODE)
-                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
-
-            TransmitPackage(UA, 'I', outputBuffer);
+            InitAsync(UA, NodeType, CT).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -466,74 +367,7 @@ namespace CmriSubroutines
         /// <returns></returns>
         public byte[] Inputs(int UA)
         {
-            byte[] inputs = new byte[3];
-            byte iInByte;
-
-            // Transmit poll loop
-            bool poll = true;
-            while (poll)
-            {
-                // clears input buffer
-                _transport.DiscardInBuffer();
-
-                // Polls node
-                TransmitPackage(UA, 'P', inputs);
-
-                // loop to get start of transmission (stx)
-                bool stx = false;
-                while (!stx)
-                {
-                    iInByte = ReceiveByte(UA);
-
-                    if (iInByte != 2) // this message is not the start of the transmission, retry
-                        continue;
-                    else
-                        poll = false;
-
-                    // now checking for the UA
-                    iInByte = ReceiveByte(UA);
-                    if (iInByte - 65 != UA)
-                    {
-                        Console.WriteLine("ERROR; Received bad UA = " + iInByte);
-                        break; // this has returned the wrong UA, repol.
-                    }
-
-                    // check that the message is an 'R' message
-                    iInByte = ReceiveByte(UA);
-                    if (iInByte != 82)
-                    {
-                        Console.WriteLine("Error received not = R for UA = " + UA);
-                        continue;
-                    }
-
-                    stx = true;
-                }
-
-                if (stx)
-                {
-                    // begin looping through inputs. Hardcoded for smini
-                    for (int i = 0; i < 3; i++)
-                    {
-                        iInByte = ReceiveByte(UA);
-
-                        if (iInByte == 2)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
-                        else if (iInByte == 3)
-                            throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
-                        else if (iInByte == 16) // this is the escape character
-                            iInByte = ReceiveByte(UA);
-
-                        inputs[i] = iInByte;
-                    }
-
-                    // check for ETX
-                    iInByte = ReceiveByte(UA);
-                    if (iInByte != 3)
-                        Console.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
-                }
-            }
-
-            return inputs;
+            return InputsAsync(UA).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -543,102 +377,54 @@ namespace CmriSubroutines
         /// <param name="OutputBuffer"></param>
         public void Outputs(int UA, byte[] OutputBuffer)
         {
-            // should be some validation here
-            _transport.DiscardOutBuffer();
-            TransmitPackage(UA, 'T', OutputBuffer); // 84 is message type "T"
+            OutputsAsync(UA, OutputBuffer).GetAwaiter().GetResult();
         }
 
-        /// <summary>
-        /// Transmits outputs to a specified node
-        /// </summary>
-        /// <param name="CommObj">Comm object used to communivate with nodes</param>
-        /// <param name="UA">USIC Address of node</param>
-        /// <param name="MessageType"></param>
-        /// <param name="OutputBuffer">Data to be output</param>
-        private void TransmitPackage(int UA, int MessageType, byte[] OutputBuffer)
+        private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
         {
-            // buffer that heads to node
-            byte[] bTransmitBuffer = new byte[80];
+            if (UA > 127)
+                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
 
-            // pointer for transmit buffer
+            byte[] ct = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
 
-            bTransmitBuffer[0] = 255;
-            bTransmitBuffer[1] = 255;
-            bTransmitBuffer[2] = 2;
-            bTransmitBuffer[3] = (byte)(UA + 65);
-            bTransmitBuffer[4] = (byte)MessageType;
-
-            int iXmitPointer = 5; // transmit buffer begins at 6th byte, first 5 are header info
-
-            _transport.DiscardOutBuffer();
-
-            /* Write data from output buffer to transmit buffer. */
-            if (MessageType != 80) // 80 is a poll request, head to end message
+            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
             {
-                foreach (byte b in OutputBuffer)
-                {
-                    if (b == 2 || b == 3 || b == 16) // escapes command bytes
-                    {
-                        bTransmitBuffer[iXmitPointer] = 16;
-                        iXmitPointer++;
-                    }
-
-                    bTransmitBuffer[iXmitPointer] = b;
-                    iXmitPointer++;
-                }
+                if (CT == null || CT.Length == 0)
+                    throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
             }
 
-            /* ENDMSG */
-            bTransmitBuffer[iXmitPointer] = 3;
-            iXmitPointer++;
+            if (nodeType == NodeType.SMINI && ct.Length != 6)
+                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
 
-            /* Transmit message to railroad */
-            _transport.Write(bTransmitBuffer, 0, iXmitPointer);
+            byte[] outputBuffer = new byte[3];
 
-            while (_transport.BytesToWrite > 0) // allows buffer to empty if it is taking long         
-                Thread.Sleep(10);
-        }
-
-        /// <summary>
-        /// Loops until an input byte is detected in the buffer or the number of maxTries is reached
-        /// </summary>
-        /// <param name="UA">USIC Address of node</param>
-        /// <returns></returns>
-        private byte ReceiveByte(int UA)
-        {
-            // Attempt a blocking read that honors transport timeout settings. Fall back to polling if transport
-            // does not support timeouts.
-            try
+            switch (nodeType)
             {
-                // If transport reports available bytes, read immediately
-                if (_transport.BytesToRead > 0)
-                    return (byte)_transport.ReadByte();
-
-                // Otherwise perform a blocking read with a timeout budget derived from _maxTries.
-                // _timeoutMs represents a millisecond budget when using network transport.
-                int timeoutMs = _timeoutMs;
-                int elapsed = 0;
-                int pollInterval = 10; // ms
-
-                while (elapsed < timeoutMs)
-                {
-                    if (_transport.BytesToRead > 0)
-                        return (byte)_transport.ReadByte();
-
-                    Thread.Sleep(pollInterval);
-                    elapsed += pollInterval;
-                }
-
-                throw new TimeoutException("INPUT TIMEOUT EXCEEDED " + _timeoutMs + " NODE = " + UA + " ABORTING INPUT");
+                case NodeType.SMINI:
+                    outputBuffer[0] = (byte)'M';
+                    break;
+                case NodeType.MAXI24:
+                    outputBuffer[0] = (byte)'N';
+                    break;
+                case NodeType.MAXI32:
+                    outputBuffer[0] = (byte)'X';
+                    break;
+                case NodeType.CPNODE:
+                    outputBuffer[0] = (byte)'C';
+                    break;
             }
-            catch (TimeoutException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new IOException("Error reading byte from transport", ex);
-            }
+
+            outputBuffer[1] = (byte)(_delay / 256);
+            outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
+
+            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
+                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(ct)).ToArray();
+            else if (nodeType == NodeType.SMINI)
+                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(ct)).ToArray();
+            else if (nodeType == NodeType.CPNODE)
+                outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
+
+            return outputBuffer;
         }
     }
 
