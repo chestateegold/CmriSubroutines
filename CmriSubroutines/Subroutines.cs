@@ -254,11 +254,11 @@ namespace CmriSubroutines
             }
         }
 
-        private async Task<bool> TryReadInputsHeaderAsync(int UA, CancellationToken cancellationToken, int headerTimeoutMs = 3000)
+        private async Task<bool> TryReadInputsHeaderAsync(int UA, CancellationToken cancellationToken)
         {
             var start = System.Diagnostics.Stopwatch.StartNew();
 
-            while (start.ElapsedMilliseconds < headerTimeoutMs)
+            while (start.ElapsedMilliseconds < _timeoutMs)
             {                   
                 byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
 
