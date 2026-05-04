@@ -6,10 +6,15 @@ using System.Threading.Tasks;
 using System.IO;
 using CmriSubroutines.Transports;
 
+//TODO: don't have both sync and async versions of everything.
 namespace CmriSubroutines
 {
+    /// <summary>
+    /// Represents a CMRI connection. One Subroutines instance = one CMRI bus.
+    /// </summary>
     public class Subroutines
     {
+        private Dictionary<int, NodeConfiguration> _nodeConfigurations = new Dictionary<int, NodeConfiguration>();
         private ITransport _transport;
         private readonly int _timeoutMs;
         private readonly int _delay;
@@ -166,51 +171,26 @@ namespace CmriSubroutines
         /// </summary>
         public async Task InitAsync(int UA, NodeType NodeType, byte[] CT = null, CancellationToken cancellationToken = default)
         {
+            // add a new config instance. replace whatever was previously there
+            _nodeConfigurations[UA] = new NodeConfiguration(UA, NodeType, CT);
+
             byte[] outputBuffer = BuildInitBuffer(UA, NodeType, CT);
             await TransmitPackageAsync(UA, 'I', outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
         private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
         {
-            if (UA > 127)
-                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
+            var nodeConfig = _nodeConfigurations[UA];
+            byte[] outputBuffer = new byte[nodeConfig.OutputSize];
 
-            byte[] ct = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
-
-            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
-            {
-                if (CT == null || CT.Length == 0)
-                    throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
-            }
-
-            if (nodeType == NodeType.SMINI && ct.Length != 6)
-                throw new ArgumentException("CT", "CT array requires 6 elements for SMINI dual lead signals");
-
-            byte[] outputBuffer = new byte[3];
-
-            switch (nodeType)
-            {
-                case NodeType.SMINI:
-                    outputBuffer[0] = (byte)'M';
-                    break;
-                case NodeType.MAXI24:
-                    outputBuffer[0] = (byte)'N';
-                    break;
-                case NodeType.MAXI32:
-                    outputBuffer[0] = (byte)'X';
-                    break;
-                case NodeType.CPNODE:
-                    outputBuffer[0] = (byte)'C';
-                    break;
-            }
-
+            outputBuffer[0] = nodeConfig.NodeDefinitionParameter;
             outputBuffer[1] = (byte)(_delay / 256);
             outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
 
             if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
-                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(ct)).ToArray();
+                outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(nodeConfig.CT)).ToArray();
             else if (nodeType == NodeType.SMINI)
-                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(ct)).ToArray();
+                outputBuffer = outputBuffer.Concat(GetSminiInitBytes(nodeConfig.CT)).ToArray();
             else if (nodeType == NodeType.CPNODE)
                 outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
 
@@ -222,7 +202,8 @@ namespace CmriSubroutines
         /// </summary>
         public async Task<byte[]> InputsAsync(int UA, CancellationToken cancellationToken = default)
         {
-            byte[] inputs = new byte[3];
+            NodeConfiguration nodeConfig = _nodeConfigurations[UA];
+            byte[] inputs = new byte[nodeConfig.InputSize];
 
             while (true)
             {
@@ -232,7 +213,7 @@ namespace CmriSubroutines
 
                 await TryReadInputsHeaderAsync(UA, cancellationToken).ConfigureAwait(false);
 
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < nodeConfig.InputSize; i++)
                 {
                     byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
 
@@ -259,7 +240,7 @@ namespace CmriSubroutines
             var start = System.Diagnostics.Stopwatch.StartNew();
 
             while (start.ElapsedMilliseconds < _timeoutMs)
-            {                   
+            {
                 byte iInByte = await ReceiveByteAsync(UA, cancellationToken).ConfigureAwait(false);
 
                 if (iInByte != 2)
@@ -282,6 +263,11 @@ namespace CmriSubroutines
         /// </summary>
         public async Task OutputsAsync(int UA, byte[] OutputBuffer, CancellationToken cancellationToken = default)
         {
+            var nodeConfig = _nodeConfigurations[UA];
+
+            if (OutputBuffer.Length != nodeConfig.OutputSize)
+                throw new ArgumentException($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
+
             _transport.DiscardOutBuffer();
             await TransmitPackageAsync(UA, 'T', OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
@@ -368,22 +354,6 @@ namespace CmriSubroutines
         /// <returns></returns>
         private byte[] GetMaxiInitBytes(byte[] CT)
         {
-            // loop through each card in the CT array to count and validate the locations of IO cards
-            for (int i = 0; i < CT.Length; i++)
-            {
-                /* bitwise function to ensure slots are not set to both input and output */
-                for (int j = 0; j < 8; j += 2) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
-                {
-                    // checks to see if the bit is set for either an input or output
-                    if ((CT[i] & 1 << j) != 0 && (CT[i] & 1 << j + 1) != 0)
-                    {
-                        throw new ArgumentException("CT",
-                            $"CT array value at index: ${i} with value: ${CT[i]} " +
-                            $"contains invalid input and output board positions. Slot can not be both input and output");
-                    }
-                }
-            }
-
             // build the ct portion of output buffer
             byte[] ctOutputBuffer = new byte[1 + CT.Length];
 
@@ -415,6 +385,135 @@ namespace CmriSubroutines
         public void Outputs(int UA, byte[] OutputBuffer)
         {
             OutputsAsync(UA, OutputBuffer).GetAwaiter().GetResult();
+        }
+    }
+
+    internal sealed class NodeConfiguration
+    {
+        public int UA { get; }
+        public NodeType NodeType { get; }
+        public byte NodeDefinitionParameter { get; }
+        public int InputSize { get; }
+        public int OutputSize { get; }
+        public byte[] CT { get; }
+
+        public int Cards { get; }
+
+        internal NodeConfiguration(int ua, NodeType nodeType, byte[] ct)
+        {
+            if (ua > 127)
+                throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
+            UA = ua;
+            NodeType = nodeType;
+            CT = ct;
+
+            //TODO: this is where out logic for determining input and output size based on node type and ct configuration will go.
+            //we will need to determine how to handle this for the maxi nodes since the ct configuration can vary widely and impact
+            //the input and output sizes in a non uniform way. we may want to consider building out a node configuration mapping
+            switch (nodeType)
+            {
+                case NodeType.SMINI:
+                    NodeDefinitionParameter = (byte)'M';
+                    InputSize = 3;
+                    OutputSize = 6;
+
+                    CT = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
+                    break;
+
+                case NodeType.MAXI24:
+                case NodeType.MAXI32:
+                    NodeDefinitionParameter = nodeType == NodeType.MAXI24 ? (byte)'N' : (byte)'X';
+
+                    if (CT == null || CT.Length == 0)
+                        throw new ArgumentNullException("CT", "CT Parameter is required for 24 bit MAXI Nodes");
+
+                    _validateMaxi(ct);
+
+                    var (inputSize, outputSize) = _countIoSize(nodeType, ct);
+
+                    InputSize = inputSize;
+                    OutputSize = outputSize;
+                    break;
+
+                case NodeType.CPNODE:
+                    //TODO:CP Nodes can be configured in a way that impacts input and output size. 
+                    NodeDefinitionParameter = (byte)'C';
+                    InputSize = 3;
+                    OutputSize = 3;
+                    break;
+
+                default:
+                    throw new ArgumentException($"Unsupported node type: {nodeType}");
+            }
+        }
+
+        private static void _validateMaxi(byte[] ct)
+        {
+            bool foundFinalCard = false;
+            for (int i = 0; i < ct.Length; i++)
+            {
+                byte b = ct[i];
+                /* bitwise function to ensure slots are not set to both input and output */
+                for (int j = 0; j < 8; j += 2) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
+                {
+                    // checks to see if the bit is set for either an input or output
+                    if ((b & 1 << j) != 0 && (b & 1 << j + 1) != 0)
+                    {
+                        throw new ArgumentException("CT",
+                            $"CT array value at index: ${i} with value: ${b} " +
+                            $"contains invalid input and output board positions. Slot can not be both input and output");
+                    }
+                    // if the final card has been found, ensure that there are no additional cards after it. throw if we find another card config
+                    else if (foundFinalCard && ((b & 1 << j) == 1 || (b & 1 << j + 1) == 1))
+                    {
+                        throw new ArgumentException("CT",
+                            $"CT array value at index: ${i} with value: ${b} " +
+                            $"found card configuration after empty slot");
+                    }
+                    // this should be after the final card. mark that we have found it and continue ensuring that there are no additional cards after it
+                    else if ((b & 1 << j) == 0 && (b & 1 << j + 1) == 0)
+                    {
+                        foundFinalCard = true;
+                    }
+                }
+            }
+        }
+
+        private static (int inputCards, int outputCards) _countIoSize(NodeType nodeType, byte[] ct)
+        {
+            //TODO: count the inputs and outputs instead 
+
+            int inputSize = 0;
+            int outputSize = 0;
+
+            bool finalCard = false;
+            for (int i = 0; i < ct.Length && !finalCard; i++)
+            {
+                // each byte represents a set of 4 cards
+                byte b = ct[i];
+                for (int j = 0; j < 8; j += 2)
+                {
+                    if ((b & 1 << j) == 1 && (b & 1 << j + 1) == 0)
+                    {
+                        // 01 is an input
+                        inputSize++;
+                    }
+                    else if ((b & 1 << j) == 0 && (b & 1 << j + 1) == 1)
+                    {
+                        // 10 is an output
+                        outputSize++;
+                    }
+                    else
+                    {
+                        //TODO: exit both loops
+                        finalCard = true;
+                        break;
+                    }
+                }
+            }
+
+            // ... logic to count io size ...
+            return (inputSize, outputSize);
         }
     }
 
