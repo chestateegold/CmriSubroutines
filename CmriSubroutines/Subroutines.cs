@@ -267,7 +267,7 @@ namespace CmriSubroutines
         private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
         {
             var nodeConfig = _nodeConfigurations[UA];
-            byte[] outputBuffer = new byte[nodeConfig.OutputSize];
+            byte[] outputBuffer = new byte[3]; 
 
             outputBuffer[0] = nodeConfig.NodeDefinitionParameter;
             outputBuffer[1] = (byte)(_delay / 256);
