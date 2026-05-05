@@ -9,7 +9,7 @@ using CmriSubroutines.Transports;
 namespace CmriSubroutines
 {
     /// <summary>
-    /// Provides methods for initializing, configuring, and communicating with nodes over various transport layers,
+    /// Provides methods for initializing, configuring, and communicating with CMRI nodes over various transport layers,
     /// including serial, TCP, and in-memory transports. Supports asynchronous operations for reading inputs, writing
     /// outputs, and managing node configurations.
     /// </summary>
@@ -29,33 +29,33 @@ namespace CmriSubroutines
 
         /// <summary>
         /// Creates a new Subroutines instance configured to communicate over a serial port with the specified
-        /// parameters.
+        /// parameters. Use this factory method for use with typical windows CMRI implementations.
         /// </summary>
         /// <param name="comPort">The number of the COM port to use for serial communication. Must correspond to a valid and available serial
         /// port on the system.</param>
-        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 1152
-        /// (representing 115200 bps).</param>
+        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 96
+        /// (representing 9600 bps).</param>
         /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for serial operations before timing out. The default is 3000
         /// milliseconds.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0 milliseconds.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64 bytes.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port settings.</returns>
-        public static Subroutines CreateSerial(int comPort, int baud100 = 1152, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static Subroutines CreateSerial(int comPort, int baud100 = 96, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
             return new Subroutines(new SerialTransport(comPort, baud100, maxBuf), timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
-        /// Creates a new Subroutines instance configured to communicate over a serial port with the specified settings.
+        /// Creates a new Subroutines instance configured to communicate over a serial port with the specified settings. Use this factory for 
         /// </summary>
         /// <param name="portName">The name of the serial port to use for communication. For example, "COM1" or "/dev/ttyS0".</param>
-        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 1152
-        /// (corresponding to 115200 bps).</param>
+        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 96
+        /// (corresponding to 9600 bps).</param>
         /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for serial operations before timing out. The default is 3000.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port and communication parameters.</returns>
-        public static Subroutines CreateSerial(string portName, int baud100 = 1152, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static Subroutines CreateSerial(string portName, int baud100 = 96, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
             return new Subroutines(new SerialTransport(portName, baud100, maxBuf), timeoutMs, delay, maxBuf);
         }
@@ -78,7 +78,7 @@ namespace CmriSubroutines
 
         /// <summary>
         /// Creates a new Subroutines instance that uses an in-memory transport, optionally initialized with a specified
-        /// read buffer.
+        /// read buffer. Does not communicate with CMRI hardware
         /// </summary>
         /// <remarks>This method is useful for testing or scenarios where a memory-based transport is
         /// required instead of actual hardware or network communication.</remarks>

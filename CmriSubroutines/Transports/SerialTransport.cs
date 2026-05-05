@@ -43,6 +43,7 @@ namespace CmriSubroutines.Transports
 
         public SerialTransport(string portName, int baud100, int bufferSize)
         {
+            //TODO: validate baud rate
             _port = new SerialPort(NormalizePortName(portName))
             {
                 BaudRate = baud100 * 100,
