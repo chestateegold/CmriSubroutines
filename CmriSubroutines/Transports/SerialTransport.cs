@@ -5,6 +5,18 @@ using System.Threading.Tasks;
 
 namespace CmriSubroutines.Transports
 {
+    /// <summary>
+    /// Specifies the supported baud rates for CMRI serial communication, expressed in hundreds of bits per second.
+    /// </summary>
+    public enum BaudRate
+    {
+        B9600 = 9600,
+        B19200 = 19200,
+        B28800 = 28800,
+        B57600 = 57600,
+        B115200 = 115200
+    }
+
     public class SerialTransport : ITransport
     {
         private readonly SerialPort _port;
@@ -36,17 +48,24 @@ namespace CmriSubroutines.Transports
             return "COM" + comPort;
         }
 
-        public SerialTransport(int comPort, int baud100, int bufferSize)
-            : this(NormalizeComPortName(comPort), baud100, bufferSize)
+        public SerialTransport(int comPort, BaudRate baudRate, int bufferSize)
         {
+            _port = new SerialPort(NormalizeComPortName(comPort))
+            {
+                BaudRate = (int)baudRate,
+                Parity = Parity.None,
+                DataBits = 8,
+                StopBits = StopBits.Two,
+                ReadBufferSize = bufferSize,
+                WriteBufferSize = bufferSize
+            };
         }
 
-        public SerialTransport(string portName, int baud100, int bufferSize)
+        public SerialTransport(string portName, BaudRate baudRate, int bufferSize)
         {
-            //TODO: validate baud rate
             _port = new SerialPort(NormalizePortName(portName))
             {
-                BaudRate = baud100 * 100,
+                BaudRate = (int)baudRate,
                 Parity = Parity.None,
                 DataBits = 8,
                 StopBits = StopBits.Two,

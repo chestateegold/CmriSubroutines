@@ -28,36 +28,31 @@ namespace CmriSubroutines
         private readonly int _maxBuf;
 
         /// <summary>
-        /// Creates a new Subroutines instance configured to communicate over a serial port with the specified
-        /// parameters. Use this factory method for use with typical windows CMRI implementations.
+        /// Creates a new Subroutines instance configured to communicate over a serial port using a typed baud rate.
         /// </summary>
-        /// <param name="comPort">The number of the COM port to use for serial communication. Must correspond to a valid and available serial
-        /// port on the system.</param>
-        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 96
-        /// (representing 9600 bps).</param>
-        /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for serial operations before timing out. The default is 3000
-        /// milliseconds.</param>
+        /// <param name="comPort">The number of the COM port to use for serial communication.</param>
+        /// <param name="baudRate">The supported baud rate for the serial connection.</param>
+        /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for serial operations before timing out. The default is 3000 milliseconds.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0 milliseconds.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64 bytes.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port settings.</returns>
-        public static Subroutines CreateSerial(int comPort, int baud100 = 96, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static Subroutines CreateSerial(int comPort, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(new SerialTransport(comPort, baud100, maxBuf), timeoutMs, delay, maxBuf);
+            return new Subroutines(new SerialTransport(comPort, baudRate, maxBuf), timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
-        /// Creates a new Subroutines instance configured to communicate over a serial port with the specified settings. Use this factory for 
+        /// Creates a new Subroutines instance configured to communicate over a serial port using a typed baud rate.
         /// </summary>
         /// <param name="portName">The name of the serial port to use for communication. For example, "COM1" or "/dev/ttyS0".</param>
-        /// <param name="baud100">The baud rate for the serial connection, specified in units of 100 bits per second. The default is 96
-        /// (corresponding to 9600 bps).</param>
+        /// <param name="baudRate">The supported baud rate for the serial connection.</param>
         /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for serial operations before timing out. The default is 3000.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port and communication parameters.</returns>
-        public static Subroutines CreateSerial(string portName, int baud100 = 96, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static Subroutines CreateSerial(string portName, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(new SerialTransport(portName, baud100, maxBuf), timeoutMs, delay, maxBuf);
+            return new Subroutines(new SerialTransport(portName, baudRate, maxBuf), timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
@@ -148,31 +143,23 @@ namespace CmriSubroutines
         {
             try
             {
-                //TODO: could probably do all this nicely with a dowhile loop
-                if (_transport.BytesToRead > 0)
-                {
-                    byte iInByte = (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
-                    return iInByte;
-                }
-
                 int timeoutMs = _timeoutMs;
                 int elapsed = 0;
                 int pollInterval = 10; // ms
 
-                while (elapsed < timeoutMs)
+                do
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (_transport.BytesToRead > 0)
                     {
-                        byte iInByte = (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
-                        return iInByte;
+                        return (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
                     }
-                        
 
                     await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
                     elapsed += pollInterval;
                 }
+                while (elapsed < timeoutMs);
 
                 throw new TimeoutException($"INPUT TIMEOUT EXCEEDED {_timeoutMs} NODE = {UA} ABORTING INPUT");
             }
@@ -394,7 +381,6 @@ namespace CmriSubroutines
             if (OutputBuffer.Length != nodeConfig.OutputSize)
                 throw new ArgumentException($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
 
-            _transport.DiscardOutBuffer(); //TODO: probably remove this. transmit discards the outbuffer
             await TransmitPackage(UA, 'T', OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
@@ -439,8 +425,7 @@ namespace CmriSubroutines
                     else
                     {
                         throw new ArgumentException("CT",
-                            $"CT array value at index: ${i} with value: ${CT[i]} " +
-                            $"contains invalid dual lead signal positions");
+                            $"CT array value at index: ${i} with value: ${CT[i]} contains invalid dual lead signal positions");
                     }
                 }
             }
@@ -524,6 +509,7 @@ namespace CmriSubroutines
                     InputSize = 3;
                     OutputSize = 6;
 
+                    //TODO: in the future, could add information about smini ct 2 lead signal configuration to ensure that outputs for 2 lead signals can be validated
                     CT = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
                     break;
 
@@ -588,8 +574,6 @@ namespace CmriSubroutines
 
         private static (int inputCards, int outputCards) _countIoSize(NodeType nodeType, byte[] ct)
         {
-            //TODO: count the inputs and outputs instead 
-
             int inputSize = 0;
             int outputSize = 0;
 

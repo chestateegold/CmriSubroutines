@@ -130,7 +130,7 @@ Notes:
 - `EnqueueRead` accepts a sequence of bytes to be returned by subsequent reads.
 - `GetWrittenData` returns the bytes the library wrote to the transport (useful to validate framing/escaping).
 - `Subroutines` calls `DiscardInBuffer()` in its constructor, so enqueue read bytes after creating `Subroutines` or avoid constructor discard in tests by creating the transport and enqueuing after construction.
-
+- SMINI CT array for 2 lead LEDs is untested on hardware. My SMINI initializes with it properly but I don't have any 2 lead LEDs to test with
 
 ## License
 
