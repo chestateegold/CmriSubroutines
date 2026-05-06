@@ -6,7 +6,7 @@ These subroutines support the use of the [SMINI](https://www.jlcenterprises.net/
 
 # Getting Started
 
-In order to use these subroutines, clone this respository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
+In order to use these subroutines, clone this repository and compile the project. Then add the resulting compiled DLL as a reference to the project that will use the subroutines.
 
 ## Initiating a COMPORT connection
 
@@ -26,10 +26,10 @@ using CmriSubRoutines;
 
 int Port = 5;
 int Baud100 = 576;
-int MaxTries = 5000;
+int timeoutMs = 5000;
 int Delay = 50;
 int MaxBuf = 64;
-SubRoutines subRoutines = new SubRoutines(Port, Baud100, MaxTries, Delay, MaxBuf);
+SubRoutines subRoutines = new SubRoutines(Port, Baud100, timeoutMs, Delay, MaxBuf);
 ```
 
 ## Initiating a node
@@ -72,6 +72,67 @@ byte[] outputs = new byte []{ 0b00000000, 0b11111111, 0b01010101 };
 subRoutines.Outputs(nodeAddress, outputs);
 ```
 
+## Using the TCP transport (ser2net)
+
+This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Create a `TcpTransport` and pass it into `Subroutines`.
+
+Example client usage:
+
+```C#
+using CmriSubroutines;
+using CmriSubroutines.Transports;
+
+// Create a TCP transport connected to your Pi's ser2net accepter
+ITransport transport = new TcpTransport("CmriPi", 3333);
+
+    // timeoutMs, Delay, MaxBuf remain available; timeoutMs acts as a read timeout budget (ms)
+    var sub = new Subroutines(transport, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
+
+sub.Init(0, NodeType.SMINI);
+var inputs = sub.Inputs(0);
+sub.Outputs(0, new byte[] { 0, 0, 0 });
+
+```
+
+Recommended `ser2net` configuration (Pi-side) to expose `/dev/ttyUSB0` on TCP port 3333:
+
+```
+connection: &conn1
+    accepter: tcp,0.0.0.0,3333
+    connector: serialdev,/dev/ttyUSB0,9600n82
+```
+
+
+## Using the in-memory transport (for tests)
+
+A `MemoryTransport` is provided for unit testing and offline development. It implements `ITransport` and lets you preload bytes that `Subroutines` will read and capture all bytes written by the library so tests can assert on them.
+
+Basic usage:
+
+```csharp
+using CmriSubroutines.Transports;
+
+// create empty memory transport and Subroutines
+var mem = new MemoryTransport();
+var sub = new CmriSubroutines.Subroutines(mem, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
+
+// enqueue bytes the node would send (STX=2, UA, 'R', data..., ETX=3)
+mem.EnqueueRead(2, (byte)(0 + 65), (byte)'R', 0, 0, 0, 3);
+
+// call async or sync APIs
+var inputs = await sub.InputsAsync(0);
+
+// inspect what was written to the transport
+var written = mem.GetWrittenData();
+```
+
+Notes:
+- `EnqueueRead` accepts a sequence of bytes to be returned by subsequent reads.
+- `GetWrittenData` returns the bytes the library wrote to the transport (useful to validate framing/escaping).
+- `Subroutines` calls `DiscardInBuffer()` in its constructor, so enqueue read bytes after creating `Subroutines` or avoid constructor discard in tests by creating the transport and enqueuing after construction.
+
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
+
