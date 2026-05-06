@@ -5,48 +5,11 @@ using System.Threading.Tasks;
 
 namespace CmriSubroutines.Transports
 {
-    /// <summary>
-    /// Specifies the supported baud rates for CMRI serial communication, expressed in hundreds of bits per second.
-    /// </summary>
-    public enum BaudRate
-    {
-        B9600 = 9600,
-        B19200 = 19200,
-        B28800 = 28800,
-        B57600 = 57600,
-        B115200 = 115200
-    }
-
     public class SerialTransport : ITransport
     {
         private readonly SerialPort _port;
         private int _readTimeoutMs = 2000;
         private int _writeTimeoutMs = 2000;
-
-        private static string NormalizePortName(string portName)
-        {
-            if (string.IsNullOrWhiteSpace(portName))
-                throw new ArgumentNullException(nameof(portName));
-
-            portName = portName.Trim();
-
-            if (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || portName.Contains("/") || portName.Contains("\\"))
-                return portName;
-
-            int portNumber;
-            if (int.TryParse(portName, out portNumber))
-                return "COM" + portNumber;
-
-            return portName;
-        }
-
-        private static string NormalizeComPortName(int comPort)
-        {
-            if (comPort < 1)
-                throw new ArgumentOutOfRangeException(nameof(comPort));
-
-            return "COM" + comPort;
-        }
 
         public SerialTransport(int comPort, BaudRate baudRate, int bufferSize)
         {
@@ -72,6 +35,31 @@ namespace CmriSubroutines.Transports
                 ReadBufferSize = bufferSize,
                 WriteBufferSize = bufferSize
             };
+        }
+
+        private static string NormalizePortName(string portName)
+        {
+            if (string.IsNullOrWhiteSpace(portName))
+                throw new ArgumentNullException(nameof(portName));
+
+            portName = portName.Trim();
+
+            if (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || portName.Contains("/") || portName.Contains("\\"))
+                return portName;
+
+            int portNumber;
+            if (int.TryParse(portName, out portNumber))
+                return "COM" + portNumber;
+
+            return portName;
+        }
+
+        private static string NormalizeComPortName(int comPort)
+        {
+            if (comPort < 1)
+                throw new ArgumentOutOfRangeException(nameof(comPort));
+
+            return "COM" + comPort;
         }
 
         public int ReadBufferSize { get => _port.ReadBufferSize; set => _port.ReadBufferSize = value; }
@@ -113,5 +101,17 @@ namespace CmriSubroutines.Transports
         {
             return Task.Run(() => Write(buffer, offset, count), cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Specifies the supported baud rates for CMRI serial communication, expressed in hundreds of bits per second.
+    /// </summary>
+    public enum BaudRate
+    {
+        B9600 = 9600,
+        B19200 = 19200,
+        B28800 = 28800,
+        B57600 = 57600,
+        B115200 = 115200
     }
 }
