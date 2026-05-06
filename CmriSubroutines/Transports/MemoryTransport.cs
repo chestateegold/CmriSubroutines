@@ -9,7 +9,7 @@ namespace CmriSubroutines.Transports
     public class MemoryTransport : ITransport
     {
         private readonly Queue<byte> _readBuffer = new Queue<byte>();
-        private readonly List<byte> _writeHistory = new List<byte>();
+        private readonly List<byte[]> _writeHistory = new List<byte[]>();
         private readonly object _syncRoot = new object();
         private bool _isOpen;
         private int _readBufferSize = 4096;
@@ -25,7 +25,10 @@ namespace CmriSubroutines.Transports
         {
             if (initialReadBuffer == null)
                 return;
-
+            //TODO: rather than enqueueing read data here, we could store locally and actually only enqueue after discardinbuffer is called
+            // if we had a list of byte arrays, we could sequence in that fashion
+            // the flow would be discard -> enqueue new data -> discard -> enqueue next bit of data
+            // for now just commenting out DiscardInBuffer
             EnqueueRead(initialReadBuffer);
         }
 
@@ -138,7 +141,9 @@ namespace CmriSubroutines.Transports
 
             lock (_syncRoot)
             {
-                _writeHistory.AddRange(buffer.Skip(offset).Take(count));
+                var writtenBytes = new byte[count];
+                Array.Copy(buffer, offset, writtenBytes, 0, count);
+                _writeHistory.Add(writtenBytes);
             }
         }
 
@@ -153,7 +158,9 @@ namespace CmriSubroutines.Transports
         {
             lock (_syncRoot)
             {
-                _readBuffer.Clear();
+                //TODO: for now commenting out to see if tests as written work correctly
+                // for more complex tests, we may need to have a smarter way to time enqueueing of data
+               // _readBuffer.Clear();
             }
         }
 
@@ -178,19 +185,22 @@ namespace CmriSubroutines.Transports
             }
         }
 
-        public byte[] GetWrittenData()
+        public IReadOnlyList<byte[]> GetWrittenWrites()
         {
             lock (_syncRoot)
             {
-                return _writeHistory.ToArray();
+                return _writeHistory.Select(write => write.ToArray()).ToArray();
             }
         }
 
-        public void ClearWrittenData()
+        public byte[] GetWrittenWrite(int writeIndex)
         {
             lock (_syncRoot)
             {
-                _writeHistory.Clear();
+                if (writeIndex < 0 || writeIndex >= _writeHistory.Count)
+                    throw new ArgumentOutOfRangeException(nameof(writeIndex));
+
+                return _writeHistory[writeIndex].ToArray();
             }
         }
 

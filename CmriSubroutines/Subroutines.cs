@@ -148,8 +148,12 @@ namespace CmriSubroutines
         {
             try
             {
+                //TODO: could probably do all this nicely with a dowhile loop
                 if (_transport.BytesToRead > 0)
-                    return (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
+                {
+                    byte iInByte = (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
+                    return iInByte;
+                }
 
                 int timeoutMs = _timeoutMs;
                 int elapsed = 0;
@@ -160,7 +164,11 @@ namespace CmriSubroutines
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (_transport.BytesToRead > 0)
-                        return (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
+                    {
+                        byte iInByte = (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
+                        return iInByte;
+                    }
+                        
 
                     await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
                     elapsed += pollInterval;
@@ -361,6 +369,8 @@ namespace CmriSubroutines
                 iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
                 if (iInByte != 82)
                     throw new InvalidDataException($"Error received not = R for UA = {UA}");
+
+                return true;
             }
 
             throw new TimeoutException($"Timed out waiting for CMRI STX for UA = {UA}");
@@ -384,7 +394,7 @@ namespace CmriSubroutines
             if (OutputBuffer.Length != nodeConfig.OutputSize)
                 throw new ArgumentException($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
 
-            _transport.DiscardOutBuffer();
+            _transport.DiscardOutBuffer(); //TODO: probably remove this. transmit discards the outbuffer
             await TransmitPackage(UA, 'T', OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
@@ -602,7 +612,6 @@ namespace CmriSubroutines
                     }
                     else
                     {
-                        //TODO: exit both loops
                         finalCard = true;
                         break;
                     }
