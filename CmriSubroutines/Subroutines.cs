@@ -21,12 +21,13 @@ namespace CmriSubroutines
     /// instances from multiple threads.</remarks>
     public class Subroutines
     {
-        private Dictionary<int, NodeConfiguration> _nodeConfigurations = new Dictionary<int, NodeConfiguration>();
-        private ITransport _transport;
+        private readonly Dictionary<int, NodeConfiguration> _nodeConfigurations = new Dictionary<int, NodeConfiguration>();
+        private readonly ITransport _transport;
         private readonly int _timeoutMs;
         private readonly int _delay;
         private readonly int _maxBuf;
 
+        //transport fails to open and will also allow for transports that require async open operations
         /// <summary>
         /// Creates a new Subroutines instance configured to communicate over a serial port using a typed baud rate.
         /// </summary>
@@ -36,9 +37,12 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0 milliseconds.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64 bytes.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port settings.</returns>
-        public static Subroutines CreateSerial(int comPort, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateSerial(int comPort, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(new SerialTransport(comPort, baudRate, maxBuf), timeoutMs, delay, maxBuf);
+            var transport = new SerialTransport(comPort, baudRate, maxBuf);
+            await transport.Open().ConfigureAwait(false);
+
+            return new Subroutines(transport, timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
@@ -50,9 +54,12 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port and communication parameters.</returns>
-        public static Subroutines CreateSerial(string portName, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateSerial(string portName, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(new SerialTransport(portName, baudRate, maxBuf), timeoutMs, delay, maxBuf);
+            var transport = new SerialTransport(portName, baudRate, maxBuf);
+            await transport.Open().ConfigureAwait(false);
+
+            return new Subroutines(transport, timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
@@ -66,9 +73,12 @@ namespace CmriSubroutines
         /// <param name="maxBuf">The maximum buffer size, in bytes, used for data transfers. Must be greater than zero. The default is 64
         /// bytes.</param>
         /// <returns>A Subroutines instance configured to use a TCP transport with the specified connection and settings.</returns>
-        public static Subroutines CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(new TcpTransport(host, port), timeoutMs, delay, maxBuf);
+            var transport = new TcpTransport(host, port);
+            await transport.Open().ConfigureAwait(false);
+
+            return new Subroutines(transport, timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
@@ -83,9 +93,11 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. Must be non-negative.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for the memory transport. Must be positive.</param>
         /// <returns>A Subroutines instance configured to use an in-memory transport with the specified parameters.</returns>
-        public static Subroutines CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            return new Subroutines(initialReadBuffer == null ? new MemoryTransport() : new MemoryTransport(initialReadBuffer), timeoutMs, delay, maxBuf);
+            var transport = initialReadBuffer == null ? new MemoryTransport() : new MemoryTransport(initialReadBuffer);
+            await transport.Open().ConfigureAwait(false);
+            return new Subroutines(transport, timeoutMs, delay, maxBuf);
         }
 
         /// <summary>
@@ -103,8 +115,7 @@ namespace CmriSubroutines
         /// to zero.</exception>
         public Subroutines(ITransport Transport, int TimeoutMs, int Delay, int MaxBuf)
         {
-            if (Transport == null)
-                throw new ArgumentNullException(nameof(Transport));
+            _transport = Transport ?? throw new ArgumentNullException(nameof(Transport));
 
             if (TimeoutMs <= 0)
                 throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
@@ -119,12 +130,8 @@ namespace CmriSubroutines
             _delay = Delay;
             _maxBuf = MaxBuf;
 
-            _transport = Transport;
             _transport.ReadBufferSize = _maxBuf;
             _transport.WriteBufferSize = _maxBuf;
-            _transport.Open();
-            _transport.DiscardInBuffer();
-            _transport.DiscardOutBuffer();
         }
 
         /// <summary>
@@ -153,7 +160,7 @@ namespace CmriSubroutines
 
                     if (_transport.BytesToRead > 0)
                     {
-                        return (byte)await _transport.ReadByteAsync(cancellationToken).ConfigureAwait(false);
+                        return (byte)await _transport.ReadByte(cancellationToken).ConfigureAwait(false);
                     }
 
                     await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
@@ -199,7 +206,7 @@ namespace CmriSubroutines
 
             int iXmitPointer = 5;
 
-            _transport.DiscardOutBuffer();
+            await _transport.DiscardOutBuffer(cancellationToken).ConfigureAwait(false);
 
             if (MessageType != 80)
             {
@@ -219,7 +226,7 @@ namespace CmriSubroutines
             bTransmitBuffer[iXmitPointer] = 3;
             iXmitPointer++;
 
-            await _transport.WriteAsync(bTransmitBuffer, 0, iXmitPointer, cancellationToken).ConfigureAwait(false);
+            await _transport.Write(bTransmitBuffer, 0, iXmitPointer, cancellationToken).ConfigureAwait(false);
 
             // allow write buffer to drain if supported
             while (_transport.BytesToWrite > 0)
@@ -245,7 +252,7 @@ namespace CmriSubroutines
             // add a new config instance. replace whatever was previously there
             _nodeConfigurations[UA] = new NodeConfiguration(UA, NodeType, CT);
 
-            byte[] outputBuffer = BuildInitBuffer(UA, NodeType, CT);
+            byte[] outputBuffer = BuildInitBuffer(UA, NodeType);
             await TransmitPackage(UA, 'I', outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
@@ -259,10 +266,10 @@ namespace CmriSubroutines
         /// <param name="nodeType">The type of node that determines the initialization buffer format.</param>
         /// <param name="CT">A byte array containing configuration or control data used in the initialization process.</param>
         /// <returns>A byte array representing the initialization buffer for the specified node and configuration.</returns>
-        private byte[] BuildInitBuffer(int UA, NodeType nodeType, byte[] CT)
+        private byte[] BuildInitBuffer(int UA, NodeType nodeType)
         {
             var nodeConfig = _nodeConfigurations[UA];
-            byte[] outputBuffer = new byte[3]; 
+            byte[] outputBuffer = new byte[3];
 
             outputBuffer[0] = nodeConfig.NodeDefinitionParameter;
             outputBuffer[1] = (byte)(_delay / 256);
@@ -292,12 +299,15 @@ namespace CmriSubroutines
         /// <exception cref="InvalidOperationException">Thrown if an unexpected byte sequence is encountered during input retrieval, indicating a protocol error.</exception>
         public async Task<byte[]> Inputs(int UA, CancellationToken cancellationToken = default)
         {
+            if (!_nodeConfigurations.ContainsKey(UA))
+                throw new KeyNotFoundException($"No configuration found for UA = {UA}");
+
             NodeConfiguration nodeConfig = _nodeConfigurations[UA];
             byte[] inputs = new byte[nodeConfig.InputSize];
 
             while (true)
             {
-                _transport.DiscardInBuffer();
+                await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
 
                 await TransmitPackage(UA, 'P', inputs, cancellationToken).ConfigureAwait(false);
 
@@ -376,6 +386,9 @@ namespace CmriSubroutines
         /// <exception cref="ArgumentException">Thrown if the length of OutputBuffer does not match the expected output size for the specified UA.</exception>
         public async Task Outputs(int UA, byte[] OutputBuffer, CancellationToken cancellationToken = default)
         {
+            if (!_nodeConfigurations.ContainsKey(UA))
+                throw new KeyNotFoundException($"No configuration found for UA = {UA}");
+
             var nodeConfig = _nodeConfigurations[UA];
 
             if (OutputBuffer.Length != nodeConfig.OutputSize)
@@ -501,7 +514,7 @@ namespace CmriSubroutines
                 throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
             UA = ua;
             CT = ct;
-                        
+
             switch (nodeType)
             {
                 case NodeType.SMINI:
@@ -520,9 +533,9 @@ namespace CmriSubroutines
                     if (CT == null || CT.Length == 0)
                         throw new ArgumentNullException("CT", "CT Parameter is required for 24 bit MAXI Nodes");
 
-                    _validateMaxi(ct);
+                    ValidateMaxi(ct);
 
-                    var (inputSize, outputSize) = _countIoSize(nodeType, ct);
+                    var (inputSize, outputSize) = CountIoSize(nodeType, ct);
 
                     InputSize = inputSize;
                     OutputSize = outputSize;
@@ -540,7 +553,7 @@ namespace CmriSubroutines
             }
         }
 
-        private static void _validateMaxi(byte[] ct)
+        private static void ValidateMaxi(byte[] ct)
         {
             bool foundFinalCard = false;
             for (int i = 0; i < ct.Length; i++)
@@ -550,21 +563,21 @@ namespace CmriSubroutines
                 for (int j = 0; j < 8; j += 2) // goes to 8 so we can guarantee a 0 so we don't miss the last digit
                 {
                     // checks to see if the bit is set for either an input or output
-                    if ((b & 1 << j) != 0 && (b & 1 << j + 1) != 0)
+                    if ((b & (1 << j)) != 0 && (b & (1 << (j + 1))) != 0)
                     {
-                        throw new ArgumentException("CT",
-                            $"CT array value at index: ${i} with value: ${b} " +
+                        throw new ArgumentException(
+                            $"CT array value at index: {i} with value: {b} ({"0b" + Convert.ToString(b, 2).PadLeft(8, '0')}) " +
                             $"contains invalid input and output board positions. Slot can not be both input and output");
                     }
                     // if the final card has been found, ensure that there are no additional cards after it. throw if we find another card config
-                    else if (foundFinalCard && ((b & 1 << j) == 1 || (b & 1 << j + 1) == 1))
+                    else if (foundFinalCard && ((b & (1 << j)) != 0 || (b & (1 << (j + 1))) != 0))
                     {
-                        throw new ArgumentException("CT",
-                            $"CT array value at index: ${i} with value: ${b} " +
+                        throw new ArgumentException(
+                            $"CT array value at index: {i} with value: {b} ({"0b" + Convert.ToString(b, 2).PadLeft(8, '0')}) " +
                             $"found card configuration after empty slot");
                     }
                     // this should be after the final card. mark that we have found it and continue ensuring that there are no additional cards after it
-                    else if ((b & 1 << j) == 0 && (b & 1 << j + 1) == 0)
+                    else if ((b & (1 << j)) == 0 && (b & (1 << (j + 1))) == 0)
                     {
                         foundFinalCard = true;
                     }
@@ -572,7 +585,7 @@ namespace CmriSubroutines
             }
         }
 
-        private static (int inputCards, int outputCards) _countIoSize(NodeType nodeType, byte[] ct)
+        private static (int inputCards, int outputCards) CountIoSize(NodeType nodeType, byte[] ct)
         {
             int inputSize = 0;
             int outputSize = 0;
@@ -584,12 +597,12 @@ namespace CmriSubroutines
                 byte b = ct[i];
                 for (int j = 0; j < 8; j += 2)
                 {
-                    if ((b & 1 << j) == 1 && (b & 1 << j + 1) == 0)
+                    if ((b & (1 << j)) != 0 && (b & (1 << (j + 1))) == 0)
                     {
                         // 01 is an input
                         inputSize++;
                     }
-                    else if ((b & 1 << j) == 0 && (b & 1 << j + 1) == 1)
+                    else if ((b & (1 << j)) == 0 && (b & (1 << (j + 1))) != 0)
                     {
                         // 10 is an output
                         outputSize++;
@@ -602,8 +615,10 @@ namespace CmriSubroutines
                 }
             }
 
+            int bytesPerCard = nodeType == NodeType.MAXI24 ? 3 : 4;
+
             // ... logic to count io size ...
-            return (inputSize, outputSize);
+            return (inputSize * bytesPerCard, outputSize * bytesPerCard);
         }
     }
 

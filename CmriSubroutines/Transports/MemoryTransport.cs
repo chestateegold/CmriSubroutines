@@ -50,36 +50,36 @@ namespace CmriSubroutines.Transports
 
         public int BytesToWrite => 0;
 
-        public void Open()
+        private void OpenSync()
         {
             _isOpen = true;
         }
 
-        public Task OpenAsync(CancellationToken cancellationToken = default)
+        public Task Open(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Open();
+            OpenSync();
             return Task.CompletedTask;
         }
 
-        public void Close()
+        private void CloseSync()
         {
             _isOpen = false;
         }
 
-        public Task CloseAsync(CancellationToken cancellationToken = default)
+        public Task Close(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Close();
+            CloseSync();
             return Task.CompletedTask;
         }
 
         public void Dispose()
         {
-            Close();
+            CloseSync();
         }
 
-        public int ReadByte()
+        private int ReadByteSync()
         {
             EnsureOpen();
 
@@ -92,13 +92,13 @@ namespace CmriSubroutines.Transports
             }
         }
 
-        public Task<int> ReadByteAsync(CancellationToken cancellationToken = default)
+        public Task<int> ReadByte(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(ReadByte());
+            return Task.FromResult(ReadByteSync());
         }
 
-        public int Read(byte[] buffer, int offset, int count)
+        private int ReadSync(byte[] buffer, int offset, int count)
         {
             EnsureOpen();
 
@@ -122,13 +122,13 @@ namespace CmriSubroutines.Transports
             }
         }
 
-        public Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(Read(buffer, offset, count));
+            return Task.FromResult(ReadSync(buffer, offset, count));
         }
 
-        public void Write(byte[] buffer, int offset, int count)
+        private void WriteSync(byte[] buffer, int offset, int count)
         {
             EnsureOpen();
 
@@ -147,14 +147,14 @@ namespace CmriSubroutines.Transports
             }
         }
 
-        public Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Write(buffer, offset, count);
+            WriteSync(buffer, offset, count);
             return Task.CompletedTask;
         }
 
-        public void DiscardInBuffer()
+        private void DiscardInBufferSync()
         {
             lock (_syncRoot)
             {
@@ -164,8 +164,22 @@ namespace CmriSubroutines.Transports
             }
         }
 
-        public void DiscardOutBuffer()
+        public Task DiscardInBuffer(CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardInBufferSync();
+            return Task.CompletedTask;
+        }
+
+        private void DiscardOutBufferSync()
+        {
+        }
+
+        public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardOutBufferSync();
+            return Task.CompletedTask;
         }
 
         public void EnqueueRead(params byte[] data)

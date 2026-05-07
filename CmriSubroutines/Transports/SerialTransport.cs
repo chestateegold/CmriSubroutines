@@ -69,35 +69,54 @@ namespace CmriSubroutines.Transports
         public int ReadTimeoutMs { get => _readTimeoutMs; set { _readTimeoutMs = value; _port.ReadTimeout = value; } }
         public int WriteTimeoutMs { get => _writeTimeoutMs; set { _writeTimeoutMs = value; _port.WriteTimeout = value; } }
 
-        public void Open() => _port.Open();
-        public void Close() { if (_port.IsOpen) _port.Close(); }
-        public Task OpenAsync(CancellationToken cancellationToken = default)
+        public Task Open(CancellationToken cancellationToken = default)
         {
-            Open();
+            DiscardInBuffer();
+            DiscardOutBuffer();
+
+            _port.Open();
             return Task.CompletedTask;
         }
 
-        public Task CloseAsync(CancellationToken cancellationToken = default)
+        public Task Close(CancellationToken cancellationToken = default)
         {
-            Close();
+            CloseSync();
             return Task.CompletedTask;
         }
-        public void Dispose() => Close();
-        public void DiscardInBuffer() => _port.DiscardInBuffer();
-        public void DiscardOutBuffer() => _port.DiscardOutBuffer();
-        public int ReadByte() => _port.ReadByte();
-        public Task<int> ReadByteAsync(CancellationToken cancellationToken = default)
+
+        private void CloseSync()
+        {
+            if (_port.IsOpen)
+                _port.Close();
+        }
+        public void Dispose() => CloseSync();
+        public Task DiscardInBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _port.DiscardInBuffer();
+            return Task.CompletedTask;
+        }
+        public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _port.DiscardOutBuffer();
+            return Task.CompletedTask;
+        }
+        public void DiscardInBufferSync() => _port.DiscardInBuffer();
+        public void DiscardOutBufferSync() => _port.DiscardOutBuffer();
+        private int ReadByteSync() => _port.ReadByte();//TODO: only being referenced in interface and readbyteasync
+        public Task<int> ReadByte(CancellationToken cancellationToken = default)
         {
             // SerialPort doesn't provide a true async API in older frameworks; wrap the blocking call.
-            return Task.Run(() => ReadByte(), cancellationToken);
+            return Task.Run(() => ReadByteSync(), cancellationToken);
         }
-        public int Read(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count);
-        public Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        private int ReadSync(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count); //TODO: only being referenced in interface and readbyteasync
+        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            return Task.Run(() => Read(buffer, offset, count), cancellationToken);
+            return Task.Run(() => ReadSync(buffer, offset, count), cancellationToken);
         }
-        public void Write(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count);
-        public Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        private void WriteSync(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count); //TODO: only being referenced in interface and readbyteasync
+        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             return Task.Run(() => Write(buffer, offset, count), cancellationToken);
         }

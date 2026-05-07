@@ -41,29 +41,7 @@ namespace CmriSubroutines.Transports
         public int ReadTimeoutMs { get => _readTimeoutMs; set => _readTimeoutMs = value; }
         public int WriteTimeoutMs { get => _writeTimeoutMs; set => _writeTimeoutMs = value; }
 
-        public void Open()
-        {
-            var addresses = Dns.GetHostAddresses(_host);
-            if (addresses == null || addresses.Length == 0)
-                throw new SocketException((int)SocketError.HostNotFound);
-
-            var ip = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses[0];
-
-            var connectTask = _client.ConnectAsync(ip, _port);
-            if (!connectTask.Wait(TimeSpan.FromSeconds(5)))
-                throw new TimeoutException($"Connect to {_host}:{_port} timed out");
-
-            _stream = _client.GetStream();
-            // apply timeouts to underlying socket
-            try
-            {
-                _client.ReceiveTimeout = _readTimeoutMs;
-                _client.SendTimeout = _writeTimeoutMs;
-            }
-            catch { }
-        }
-
-        public async Task OpenAsync(CancellationToken cancellationToken = default)
+        public async Task Open(CancellationToken cancellationToken = default)
         {
             var addresses = Dns.GetHostAddresses(_host);
             if (addresses == null || addresses.Length == 0)
@@ -86,22 +64,22 @@ namespace CmriSubroutines.Transports
             catch { }
         }
 
-        public void Close()
+        private void CloseSync()
         {
             try { _stream?.Close(); } catch { }
             try { _client?.Close(); } catch { }
         }
 
-        public Task CloseAsync(CancellationToken cancellationToken = default)
+        public Task Close(CancellationToken cancellationToken = default)
         {
-            try { _stream?.Close(); } catch { }
-            try { _client?.Close(); } catch { }
+            cancellationToken.ThrowIfCancellationRequested();
+            CloseSync();
             return Task.CompletedTask;
         }
 
-        public void Dispose() => Close();
+        public void Dispose() => CloseSync();
 
-        public void DiscardInBuffer()
+        private void DiscardInBufferSync()
         {
             if (_stream == null) return;
             try
@@ -117,17 +95,31 @@ namespace CmriSubroutines.Transports
             catch { }
         }
 
-        public void DiscardOutBuffer()
+        public Task DiscardInBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardInBufferSync();
+            return Task.CompletedTask;
+        }
+
+        private void DiscardOutBufferSync()
         {
             // nothing to do for TCP
         }
 
-        public int ReadByte()
+        public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
         {
-            if (_stream == null) throw new InvalidOperationException("Transport not open");
-            // NetworkStream.ReadByte blocks and will respect the socket ReceiveTimeout
-            int val = _stream.ReadByte();
-            return val;
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardOutBufferSync();
+            return Task.CompletedTask;
+        }
+                
+        public async Task<int> ReadByte(CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                await Task.FromCanceled<int>(cancellationToken).ConfigureAwait(false);
+
+            return await ReadByteAsync(cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<int> ReadByteAsync(CancellationToken cancellationToken = default)
@@ -139,10 +131,9 @@ namespace CmriSubroutines.Transports
             return buffer[0];
         }
 
-        public int Read(byte[] buffer, int offset, int count)
+        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            if (_stream == null) throw new InvalidOperationException("Transport not open");
-            return _stream.Read(buffer, offset, count);
+            return ReadAsync(buffer, offset, count, cancellationToken);
         }
 
         public Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
@@ -151,17 +142,16 @@ namespace CmriSubroutines.Transports
             return _stream.ReadAsync(buffer, offset, count, cancellationToken);
         }
 
-        public void Write(byte[] buffer, int offset, int count)
+        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            if (_stream == null) throw new InvalidOperationException("Transport not open");
-            _stream.Write(buffer, offset, count);
-            _stream.Flush();
+            return WriteAsync(buffer, offset, count, cancellationToken);
         }
 
-        public Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
-            return _stream.WriteAsync(buffer, offset, count, cancellationToken);
+            await _stream.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

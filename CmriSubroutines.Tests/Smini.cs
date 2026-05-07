@@ -10,6 +10,8 @@ namespace CmriSubroutines.Tests
         public async Task Init_WithSmini_WritesExpectedTransmitBuffer()
         {
             MemoryTransport transport = new();
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 3000, 0, 64);
 
             await subroutines.Init(0, NodeType.SMINI);
@@ -25,6 +27,8 @@ namespace CmriSubroutines.Tests
         public async Task Inputs_WithSmini_WritesExpectedTransmitBuffer()
         {
             MemoryTransport transport = new([255, 255, 2, 65, 82, 0, 0, 0, 3]);
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 3000, 0, 64);
 
             await subroutines.Init(0, NodeType.SMINI);
@@ -42,7 +46,9 @@ namespace CmriSubroutines.Tests
         [TestMethod]
         public async Task Inputs_WithSmini_TimeoutOnReceiveByte()
         {
-            MemoryTransport transport = new();
+            MemoryTransport transport = new(); // no data in the read buffer, so it will timeout when trying to read the inputs response
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 250, 0, 64);
 
             await subroutines.Init(0, NodeType.SMINI);
@@ -56,6 +62,8 @@ namespace CmriSubroutines.Tests
         public async Task Outputs_WithSmini_WritesExpectedTransmitBuffer()
         {
             MemoryTransport transport = new();
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 3000, 0, 64);
 
             await subroutines.Init(0, NodeType.SMINI);
@@ -76,6 +84,8 @@ namespace CmriSubroutines.Tests
         public async Task Outputs_WithSminiAndEscapes_WritesExpectedTransmitBuffer()
         {
             MemoryTransport transport = new();
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 3000, 0, 64);
 
             await subroutines.Init(0, NodeType.SMINI);
@@ -95,20 +105,23 @@ namespace CmriSubroutines.Tests
         }
 
         [TestMethod]
-        public async Task Outputs_WithSminiAndCt_WritesExpectedTransmitBuffer()
+        public async Task InputsOutputs_WithSmini_WritesExpectedTransmitBuffer()
         {
             MemoryTransport transport = new();
+            await transport.Open();
+
             Subroutines subroutines = new(transport, 3000, 0, 64);
+            await subroutines.Init(0, NodeType.SMINI);
 
-            await subroutines.Init(0, NodeType.SMINI, [3, 0, 0, 0, 0, 0]);
+            await Assert.ThrowsAsync<KeyNotFoundException>(async () =>
+            {
+                await subroutines.Inputs(1);
+            });
 
-            byte[] expected =
-            [
-                255, 255, 2, 65, 73, 77, 0, 0, 1, 16, 3, 0, 0, 0, 0, 0, 3
-            ];
-
-            var written = transport.GetWrittenWrite(0);
-            CollectionAssert.AreEqual(expected, written);
+            await Assert.ThrowsAsync<KeyNotFoundException>(async () =>
+            {
+                await subroutines.Outputs(1, [0, 0, 0, 0, 0, 0]);
+            });
         }
     }
 }
