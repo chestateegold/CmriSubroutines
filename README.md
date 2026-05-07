@@ -1,8 +1,8 @@
 # CMRI Subroutines
 
-This project was built to address the lack of highly performative CMRI subroutines built on the .NET framework. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#, but you can use any .NET language including Visual Basic.
+This project was built to address the lack of highly performative CMRI subroutines built on .NET. The idea was to leverage modern object oriented features of .NET, as opposed to simply porting over the original VB6 subroutines. All examples are given in C#, but you can use any .NET language including Visual Basic.
 
-These subroutines support the use of the [SMINI](https://www.jlcenterprises.net/collections/mini-node), [MAXI](https://www.jlcenterprises.net/collections/maxi-node) and [cpNode](http://www.modelrailroadcontrolsystems.com/cpnode-version-2-5/). If you would like another CMRI variant to be supported, feel free to open an issue on our github repo and we can start working on it!
+These subroutines support the use of the [SMINI](https://www.jlcenterprises.net/collections/mini-node), [MAXI](https://www.jlcenterprises.net/collections/maxi-node) and [cpNode](http://www.modelrailroadcontrolsystems.com/cpnode-version-2-7/). If you would like another CMRI variant to be supported, feel free to open an issue on our github repo and we can start working on it!
 
 # Getting Started
 
@@ -12,24 +12,24 @@ In order to use these subroutines, clone this repository and compile the project
 
 In order to begin communicating with your CMRI node, you must first create a CmriSubroutines object. This initializes the COM PORT that you will be using and also sets up shared resources to be used during all calls made on that port. The first argument is required and chooses the COMPORT that you wish to use. The following paramaters are optional and allow you to manually set the BaudRate, MaxTries, Delay and MaxBuf. 
 
-#### Using default values
+#### Using the serial factory with default values
 ```C#
 using CmriSubRoutines;
 
 int Port = 5;
-SubRoutines subRoutines = new SubRoutines(Port);
+Subroutines subRoutines = await Subroutines.CreateSerial(Port);
 ```
 
-#### Using explicit values
+#### Using the serial factory with explicit values
 ```C#
 using CmriSubRoutines;
 
 int Port = 5;
-int Baud100 = 576;
+BaudRate baudRate = BaudRate.B57600;
 int timeoutMs = 5000;
 int Delay = 50;
 int MaxBuf = 64;
-SubRoutines subRoutines = new SubRoutines(Port, Baud100, timeoutMs, Delay, MaxBuf);
+Subroutines subRoutines = await Subroutines.CreateSerial(Port, baudRate, timeoutMs, Delay, MaxBuf);
 ```
 
 ## Initiating a node
@@ -39,7 +39,7 @@ The next step is to initiate your node over your newly created COMPORT connectio
 #### Initiating node without a CT Array
 ```C#
 int nodeAddress = 0;
-subRoutines.Init(nodeAddress, NodeType.SMINI);
+await subRoutines.Init(nodeAddress, NodeType.SMINI);
 ```
 
 #### Initiating node with a CT array
@@ -49,7 +49,7 @@ int nodeAddress = 0;
 // CT array populated with locations of 2 lead signal outputs
 byte[] CT = new byte[]{ 3, 12, 198, 0, 0, 0 }; 
 
-subRoutines.Init(nodeAddress, NodeType.SMINI, CT);
+await subRoutines.Init(nodeAddress, NodeType.SMINI, CT);
 ```
 
 ## Retreiving inputs from the node
@@ -58,7 +58,7 @@ To retreive inputs, call the INPUTS method of your subRoutines object. The argum
 
 ```C#
 int nodeAddress = 0;
-byte[] inputs = subRoutines.Inputs(nodeAddress);
+byte[] inputs = await subRoutines.Inputs(nodeAddress);
 ```
 
 ## Sending outputs to the node
@@ -69,28 +69,23 @@ To retreive outputs, call the OUTPUTS method of your subRoutines object. The fir
 int nodeAddress = 0;
 byte[] outputs = new byte []{ 0b00000000, 0b11111111, 0b01010101 };
 
-subRoutines.Outputs(nodeAddress, outputs);
+await subRoutines.Outputs(nodeAddress, outputs);
 ```
 
 ## Using the TCP transport (ser2net)
 
-This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Create a `TcpTransport` and pass it into `Subroutines`.
+This library includes a TCP transport that connects to a serial device exposed by a server such as `ser2net` on a Raspberry Pi. Use the TCP factory to create `Subroutines`.
 
 Example client usage:
 
 ```C#
 using CmriSubroutines;
-using CmriSubroutines.Transports;
 
-// Create a TCP transport connected to your Pi's ser2net accepter
-ITransport transport = new TcpTransport("CmriPi", 3333);
+var sub = await Subroutines.CreateTcp("CmriPi", 3333, timeoutMs: 3000, delay: 0, maxBuf: 64);
 
-    // timeoutMs, Delay, MaxBuf remain available; timeoutMs acts as a read timeout budget (ms)
-    var sub = new Subroutines(transport, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
-
-sub.Init(0, NodeType.SMINI);
-var inputs = sub.Inputs(0);
-sub.Outputs(0, new byte[] { 0, 0, 0 });
+await sub.Init(0, NodeType.SMINI);
+var inputs = await sub.Inputs(0);
+await sub.Outputs(0, new byte[] { 0, 0, 0 });
 
 ```
 
@@ -105,32 +100,36 @@ connection: &conn1
 
 ## Using the in-memory transport (for tests)
 
-A `MemoryTransport` is provided for unit testing and offline development. It implements `ITransport` and lets you preload bytes that `Subroutines` will read and capture all bytes written by the library so tests can assert on them.
+A `MemoryTransport` is provided for unit testing and offline development. Use the memory factory to create `Subroutines` and preload bytes that it will read.
 
 Basic usage:
 
 ```csharp
-using CmriSubroutines.Transports;
+using CmriSubroutines;
 
-// create empty memory transport and Subroutines
-var mem = new MemoryTransport();
-var sub = new CmriSubroutines.Subroutines(mem, timeoutMs: 3000, Delay: 0, MaxBuf: 64);
+var sub = Subroutines.CreateMemory(new byte[] { 2, (byte)(0 + 65), (byte)'R', 0, 0, 0, 3 }, timeoutMs: 3000, delay: 0, maxBuf: 64);
 
-// enqueue bytes the node would send (STX=2, UA, 'R', data..., ETX=3)
-mem.EnqueueRead(2, (byte)(0 + 65), (byte)'R', 0, 0, 0, 3);
+// call the async APIs
+var inputs = await sub.Inputs(0);
 
-// call async or sync APIs
-var inputs = await sub.InputsAsync(0);
-
-// inspect what was written to the transport
-var written = mem.GetWrittenData();
+// inspect the state through your test transport setup
 ```
 
 Notes:
-- `EnqueueRead` accepts a sequence of bytes to be returned by subsequent reads.
-- `GetWrittenData` returns the bytes the library wrote to the transport (useful to validate framing/escaping).
-- `Subroutines` calls `DiscardInBuffer()` in its constructor, so enqueue read bytes after creating `Subroutines` or avoid constructor discard in tests by creating the transport and enqueuing after construction.
+- `CreateMemory` accepts an optional sequence of bytes to be returned by subsequent reads.
+- Use the memory transport directly in tests if you need to inspect written bytes.
 - SMINI CT array for 2 lead LEDs is untested on hardware. My SMINI initializes with it properly but I don't have any 2 lead LEDs to test with
+
+## Tested node types
+
+| Node type | Inputs tested | Outputs tested |
+| --- | --- | --- |
+| SMINI | Yes | Yes |
+| MAXI 24 with CIN/COUT cards | Yes | Yes |
+| MAXI 24 with DIN/DOUT cards | Yes | No |
+| MAXI 32 with DIN/DOUT cards | No | No |
+| MRCS cpNode 2.7 | No | No |
+| MRCS cpNode ProMini | No | No |
 
 ## License
 
