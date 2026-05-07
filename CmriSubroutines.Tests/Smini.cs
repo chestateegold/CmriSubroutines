@@ -12,7 +12,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new();
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 3000, 0, 64);
+            Subroutines subroutines = new(transport, 3000, 0);
 
             await subroutines.Init(0, NodeType.SMINI);
 
@@ -29,7 +29,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new([255, 255, 2, 65, 82, 0, 0, 0, 3]);
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 3000, 0, 64);
+            Subroutines subroutines = new(transport, 3000, 0);
 
             await subroutines.Init(0, NodeType.SMINI);
 
@@ -49,7 +49,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new(); // no data in the read buffer, so it will timeout when trying to read the inputs response
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 250, 0, 64);
+            Subroutines subroutines = new(transport, 250, 0); 
 
             await subroutines.Init(0, NodeType.SMINI);
 
@@ -64,7 +64,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new();
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 3000, 0, 64);
+            Subroutines subroutines = new(transport, 3000, 0);
 
             await subroutines.Init(0, NodeType.SMINI);
 
@@ -86,7 +86,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new();
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 3000, 0, 64);
+            Subroutines subroutines = new(transport, 3000, 0);
 
             await subroutines.Init(0, NodeType.SMINI);
 
@@ -110,7 +110,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new();
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 3000, 0, 64);
+            Subroutines subroutines = new(transport, 3000, 0);
             await subroutines.Init(0, NodeType.SMINI);
 
             await Assert.ThrowsAsync<KeyNotFoundException>(async () =>

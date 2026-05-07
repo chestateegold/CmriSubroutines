@@ -13,19 +13,17 @@ namespace CmriSubroutines.Transports
         private NetworkStream _stream;
         private readonly string _host;
         private readonly int _port;
-        private int _readBufferSize = 4096;
-        private int _writeBufferSize = 4096;
-        private int _readTimeoutMs = 2000;
-        private int _writeTimeoutMs = 2000;
+        private readonly int _bufferSize;
+        private readonly int _timeoutMs;
 
-        public TcpTransport(string host, int port)
+        public TcpTransport(string host, int port, int timeoutMs, int bufferSize)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _port = port;
+            _bufferSize = bufferSize;
+            _timeoutMs = timeoutMs;
         }
 
-        public int ReadBufferSize { get => _readBufferSize; set => _readBufferSize = value; }
-        public int WriteBufferSize { get => _writeBufferSize; set => _writeBufferSize = value; }
         public int BytesToRead
         {
             get
@@ -37,10 +35,6 @@ namespace CmriSubroutines.Transports
         }
 
         public int BytesToWrite => 0; // TcpClient doesn't expose pending bytes to write easily
-
-        public int ReadTimeoutMs { get => _readTimeoutMs; set => _readTimeoutMs = value; }
-        public int WriteTimeoutMs { get => _writeTimeoutMs; set => _writeTimeoutMs = value; }
-
         public async Task Open(CancellationToken cancellationToken = default)
         {
             var addresses = Dns.GetHostAddresses(_host);
@@ -58,8 +52,8 @@ namespace CmriSubroutines.Transports
             _stream = _client.GetStream();
             try
             {
-                _client.ReceiveTimeout = _readTimeoutMs;
-                _client.SendTimeout = _writeTimeoutMs;
+                _client.ReceiveTimeout = _timeoutMs;
+                _client.SendTimeout = _timeoutMs;
             }
             catch { }
         }
@@ -86,7 +80,7 @@ namespace CmriSubroutines.Transports
             {
                 while (_client.Available > 0)
                 {
-                    var buf = new byte[ReadBufferSize];
+                    var buf = new byte[_bufferSize];
                     int toRead = Math.Min(_client.Available, buf.Length);
                     int read = _stream.Read(buf, 0, toRead);
                     if (read <= 0) break;
@@ -119,11 +113,6 @@ namespace CmriSubroutines.Transports
             if (cancellationToken.IsCancellationRequested)
                 await Task.FromCanceled<int>(cancellationToken).ConfigureAwait(false);
 
-            return await ReadByteAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        public async Task<int> ReadByteAsync(CancellationToken cancellationToken = default)
-        {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
             var buffer = new byte[1];
             int read = await _stream.ReadAsync(buffer, 0, 1, cancellationToken).ConfigureAwait(false);
@@ -133,21 +122,11 @@ namespace CmriSubroutines.Transports
 
         public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            return ReadAsync(buffer, offset, count, cancellationToken);
-        }
-
-        public Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-        {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
             return _stream.ReadAsync(buffer, offset, count, cancellationToken);
         }
 
-        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-        {
-            return WriteAsync(buffer, offset, count, cancellationToken);
-        }
-
-        public async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public async Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
             await _stream.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);

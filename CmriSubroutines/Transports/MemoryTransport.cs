@@ -12,13 +12,10 @@ namespace CmriSubroutines.Transports
         private readonly List<byte[]> _writeHistory = new List<byte[]>();
         private readonly object _syncRoot = new object();
         private bool _isOpen;
-        private int _readBufferSize = 4096;
-        private int _writeBufferSize = 4096;
-        private int _readTimeoutMs = 2000;
-        private int _writeTimeoutMs = 2000;
 
         public MemoryTransport()
         {
+           
         }
 
         public MemoryTransport(IEnumerable<byte> initialReadBuffer)
@@ -31,11 +28,6 @@ namespace CmriSubroutines.Transports
             // for now just commenting out DiscardInBuffer
             EnqueueRead(initialReadBuffer);
         }
-
-        public int ReadBufferSize { get => _readBufferSize; set => _readBufferSize = value; }
-        public int WriteBufferSize { get => _writeBufferSize; set => _writeBufferSize = value; }
-        public int ReadTimeoutMs { get => _readTimeoutMs; set => _readTimeoutMs = value; }
-        public int WriteTimeoutMs { get => _writeTimeoutMs; set => _writeTimeoutMs = value; }
 
         public int BytesToRead
         {

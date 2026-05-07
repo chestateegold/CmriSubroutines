@@ -14,11 +14,6 @@ namespace CmriSubroutines.Transports
         Task DiscardInBuffer(CancellationToken cancellationToken = default);
         Task DiscardOutBuffer(CancellationToken cancellationToken = default);
         int BytesToRead { get; }
-        int BytesToWrite { get; }
-        int ReadBufferSize { get; set; }
-        int WriteBufferSize { get; set; }
-        // Read/Write timeouts in milliseconds. Transport implementations should honor these values.
-        int ReadTimeoutMs { get; set; }
-        int WriteTimeoutMs { get; set; }
+        int BytesToWrite { get; }        
     }
 }

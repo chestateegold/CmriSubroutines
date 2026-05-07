@@ -8,8 +8,6 @@ namespace CmriSubroutines.Transports
     public class SerialTransport : ITransport
     {
         private readonly SerialPort _port;
-        private int _readTimeoutMs = 2000;
-        private int _writeTimeoutMs = 2000;
 
         public SerialTransport(int comPort, BaudRate baudRate, int bufferSize)
         {
@@ -47,8 +45,7 @@ namespace CmriSubroutines.Transports
             if (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || portName.Contains("/") || portName.Contains("\\"))
                 return portName;
 
-            int portNumber;
-            if (int.TryParse(portName, out portNumber))
+            if (int.TryParse(portName, out int portNumber))
                 return "COM" + portNumber;
 
             return portName;
@@ -61,14 +58,8 @@ namespace CmriSubroutines.Transports
 
             return "COM" + comPort;
         }
-
-        public int ReadBufferSize { get => _port.ReadBufferSize; set => _port.ReadBufferSize = value; }
-        public int WriteBufferSize { get => _port.WriteBufferSize; set => _port.WriteBufferSize = value; }
         public int BytesToRead => _port.BytesToRead;
         public int BytesToWrite => _port.BytesToWrite;
-        public int ReadTimeoutMs { get => _readTimeoutMs; set { _readTimeoutMs = value; _port.ReadTimeout = value; } }
-        public int WriteTimeoutMs { get => _writeTimeoutMs; set { _writeTimeoutMs = value; _port.WriteTimeout = value; } }
-
         public Task Open(CancellationToken cancellationToken = default)
         {
             DiscardInBuffer();
@@ -104,21 +95,21 @@ namespace CmriSubroutines.Transports
         }
         public void DiscardInBufferSync() => _port.DiscardInBuffer();
         public void DiscardOutBufferSync() => _port.DiscardOutBuffer();
-        private int ReadByteSync() => _port.ReadByte();//TODO: only being referenced in interface and readbyteasync
+        private int ReadByteSync() => _port.ReadByte();
         public Task<int> ReadByte(CancellationToken cancellationToken = default)
         {
             // SerialPort doesn't provide a true async API in older frameworks; wrap the blocking call.
             return Task.Run(() => ReadByteSync(), cancellationToken);
         }
-        private int ReadSync(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count); //TODO: only being referenced in interface and readbyteasync
+        private int ReadSync(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count);
         public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             return Task.Run(() => ReadSync(buffer, offset, count), cancellationToken);
         }
-        private void WriteSync(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count); //TODO: only being referenced in interface and readbyteasync
+        private void WriteSync(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count);
         public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            return Task.Run(() => Write(buffer, offset, count), cancellationToken);
+            return Task.Run(() => WriteSync(buffer, offset, count), cancellationToken);
         }
     }
 

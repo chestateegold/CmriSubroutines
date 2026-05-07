@@ -25,7 +25,6 @@ namespace CmriSubroutines
         private readonly ITransport _transport;
         private readonly int _timeoutMs;
         private readonly int _delay;
-        private readonly int _maxBuf;
 
         //transport fails to open and will also allow for transports that require async open operations
         /// <summary>
@@ -42,7 +41,7 @@ namespace CmriSubroutines
             var transport = new SerialTransport(comPort, baudRate, maxBuf);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay, maxBuf);
+            return new Subroutines(transport, timeoutMs, delay);
         }
 
         /// <summary>
@@ -59,7 +58,7 @@ namespace CmriSubroutines
             var transport = new SerialTransport(portName, baudRate, maxBuf);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay, maxBuf);
+            return new Subroutines(transport, timeoutMs, delay);
         }
 
         /// <summary>
@@ -75,10 +74,10 @@ namespace CmriSubroutines
         /// <returns>A Subroutines instance configured to use a TCP transport with the specified connection and settings.</returns>
         public static async Task<Subroutines> CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
         {
-            var transport = new TcpTransport(host, port);
+            var transport = new TcpTransport(host, port, timeoutMs, maxBuf);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay, maxBuf);
+            return new Subroutines(transport, timeoutMs, delay);
         }
 
         /// <summary>
@@ -93,11 +92,11 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. Must be non-negative.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for the memory transport. Must be positive.</param>
         /// <returns>A Subroutines instance configured to use an in-memory transport with the specified parameters.</returns>
-        public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0)
         {
             var transport = initialReadBuffer == null ? new MemoryTransport() : new MemoryTransport(initialReadBuffer);
             await transport.Open().ConfigureAwait(false);
-            return new Subroutines(transport, timeoutMs, delay, maxBuf);
+            return new Subroutines(transport, timeoutMs, delay);
         }
 
         /// <summary>
@@ -113,7 +112,7 @@ namespace CmriSubroutines
         /// <exception cref="ArgumentNullException">Thrown if Transport is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if TimeoutMs is less than or equal to zero, Delay is less than zero, or MaxBuf is less than or equal
         /// to zero.</exception>
-        public Subroutines(ITransport Transport, int TimeoutMs, int Delay, int MaxBuf)
+        public Subroutines(ITransport Transport, int TimeoutMs, int Delay)
         {
             _transport = Transport ?? throw new ArgumentNullException(nameof(Transport));
 
@@ -121,17 +120,11 @@ namespace CmriSubroutines
                 throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
 
             if (Delay < 0)
-                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
-
-            if (MaxBuf <= 0)
-                throw new ArgumentOutOfRangeException("MaxBuf", "MaxBuf must be a positive");
+                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");            
 
             _timeoutMs = TimeoutMs;
             _delay = Delay;
-            _maxBuf = MaxBuf;
 
-            _transport.ReadBufferSize = _maxBuf;
-            _transport.WriteBufferSize = _maxBuf;
         }
 
         /// <summary>
@@ -355,7 +348,6 @@ namespace CmriSubroutines
             while (start.ElapsedMilliseconds < _timeoutMs)
             {
                 byte iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
-
                 if (iInByte != 2)
                     continue;
 
