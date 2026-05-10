@@ -15,7 +15,6 @@ namespace CmriSubroutines.Transports
 
         public MemoryTransport()
         {
-           
         }
 
         public MemoryTransport(IEnumerable<byte> initialReadBuffer)
@@ -66,10 +65,7 @@ namespace CmriSubroutines.Transports
             return Task.CompletedTask;
         }
 
-        public void Dispose()
-        {
-            CloseSync();
-        }
+        public void Dispose() => CloseSync();
 
         private int ReadByteSync()
         {
@@ -90,59 +86,23 @@ namespace CmriSubroutines.Transports
             return Task.FromResult(ReadByteSync());
         }
 
-        private int ReadSync(byte[] buffer, int offset, int count)
+        private void WriteSync(byte[] buffer)
         {
             EnsureOpen();
 
             if (buffer == null)
                 throw new ArgumentNullException(nameof(buffer));
-            if (offset < 0 || offset > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            if (count < 0 || offset + count > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(count));
 
             lock (_syncRoot)
             {
-                int read = 0;
-                while (read < count && _readBuffer.Count > 0)
-                {
-                    buffer[offset + read] = _readBuffer.Dequeue();
-                    read++;
-                }
-
-                return read;
+                _writeHistory.Add(buffer);
             }
         }
 
-        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public Task Write(byte[] buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(ReadSync(buffer, offset, count));
-        }
-
-        private void WriteSync(byte[] buffer, int offset, int count)
-        {
-            EnsureOpen();
-
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer));
-            if (offset < 0 || offset > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            if (count < 0 || offset + count > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(count));
-
-            lock (_syncRoot)
-            {
-                var writtenBytes = new byte[count];
-                Array.Copy(buffer, offset, writtenBytes, 0, count);
-                _writeHistory.Add(writtenBytes);
-            }
-        }
-
-        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            WriteSync(buffer, offset, count);
+            WriteSync(buffer);
             return Task.CompletedTask;
         }
 

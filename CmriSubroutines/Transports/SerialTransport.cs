@@ -62,16 +62,22 @@ namespace CmriSubroutines.Transports
         public int BytesToWrite => _port.BytesToWrite;
         public Task Open(CancellationToken cancellationToken = default)
         {
-            DiscardInBuffer();
-            DiscardOutBuffer();
+            cancellationToken.ThrowIfCancellationRequested();
 
             _port.Open();
+
+            DiscardInBufferSync();
+            DiscardOutBufferSync();
+
             return Task.CompletedTask;
         }
 
         public Task Close(CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             CloseSync();
+
             return Task.CompletedTask;
         }
 
@@ -84,32 +90,36 @@ namespace CmriSubroutines.Transports
         public Task DiscardInBuffer(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            _port.DiscardInBuffer();
+            DiscardInBufferSync();
+
             return Task.CompletedTask;
         }
+
         public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            _port.DiscardOutBuffer();
+            DiscardOutBufferSync();
+
             return Task.CompletedTask;
         }
-        public void DiscardInBufferSync() => _port.DiscardInBuffer();
-        public void DiscardOutBufferSync() => _port.DiscardOutBuffer();
+
+        private void DiscardInBufferSync() => _port.DiscardInBuffer();
+
+        private void DiscardOutBufferSync() => _port.DiscardOutBuffer();
+
         private int ReadByteSync() => _port.ReadByte();
+
         public Task<int> ReadByte(CancellationToken cancellationToken = default)
         {
             // SerialPort doesn't provide a true async API in older frameworks; wrap the blocking call.
             return Task.Run(() => ReadByteSync(), cancellationToken);
         }
-        private int ReadSync(byte[] buffer, int offset, int count) => _port.Read(buffer, offset, count);
-        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+
+        private void WriteSync(byte[] buffer) => _port.Write(buffer, 0, buffer.Length);
+
+        public Task Write(byte[] buffer, CancellationToken cancellationToken = default)
         {
-            return Task.Run(() => ReadSync(buffer, offset, count), cancellationToken);
-        }
-        private void WriteSync(byte[] buffer, int offset, int count) => _port.Write(buffer, offset, count);
-        public Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-        {
-            return Task.Run(() => WriteSync(buffer, offset, count), cancellationToken);
+            return Task.Run(() => WriteSync(buffer), cancellationToken);
         }
     }
 

@@ -26,7 +26,6 @@ namespace CmriSubroutines
         private readonly int _timeoutMs;
         private readonly int _delay;
 
-        //transport fails to open and will also allow for transports that require async open operations
         /// <summary>
         /// Creates a new Subroutines instance configured to communicate over a serial port using a typed baud rate.
         /// </summary>
@@ -120,7 +119,7 @@ namespace CmriSubroutines
                 throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
 
             if (Delay < 0)
-                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");            
+                throw new ArgumentOutOfRangeException("Delay", "Delay can not be less than zero");
 
             _timeoutMs = TimeoutMs;
             _delay = Delay;
@@ -143,7 +142,7 @@ namespace CmriSubroutines
         {
             try
             {
-                int timeoutMs = _timeoutMs;
+                //TODO: ugly way to do timing. use the method used elsewhere for consistency
                 int elapsed = 0;
                 int pollInterval = 10; // ms
 
@@ -159,7 +158,7 @@ namespace CmriSubroutines
                     await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
                     elapsed += pollInterval;
                 }
-                while (elapsed < timeoutMs);
+                while (elapsed < _timeoutMs);
 
                 throw new TimeoutException($"INPUT TIMEOUT EXCEEDED {_timeoutMs} NODE = {UA} ABORTING INPUT");
             }
@@ -188,38 +187,33 @@ namespace CmriSubroutines
         /// <param name="OutputBuffer">The data payload to include in the transmitted package. Cannot be null.</param>
         /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous transmit operation.</param>
         /// <returns>A task that represents the asynchronous transmit operation.</returns>
-        private async Task TransmitPackage(int UA, int MessageType, byte[] OutputBuffer, CancellationToken cancellationToken = default)
+        /// 
+        private async Task TransmitPackage(int UA, MessageType MessageType, byte[] OutputBuffer, CancellationToken cancellationToken = default)
         {
-            byte[] bTransmitBuffer = new byte[80];
-            bTransmitBuffer[0] = 255;
-            bTransmitBuffer[1] = 255;
-            bTransmitBuffer[2] = 2;
-            bTransmitBuffer[3] = (byte)(UA + 65);
-            bTransmitBuffer[4] = (byte)MessageType;
-
-            int iXmitPointer = 5;
+            List<byte> bTransmitBuffer = new List<byte>
+            {
+                255,
+                255,
+                2, // beginning of message
+                (byte)(UA + 65), // unit address plus 65 to convert to ascii
+                (byte)MessageType
+            };
 
             await _transport.DiscardOutBuffer(cancellationToken).ConfigureAwait(false);
 
-            if (MessageType != 80)
+            foreach (byte b in OutputBuffer)
             {
-                foreach (byte b in OutputBuffer)
-                {
-                    if (b == 2 || b == 3 || b == 16)
-                    {
-                        bTransmitBuffer[iXmitPointer] = 16;
-                        iXmitPointer++;
-                    }
+                // add escape for 2, 3 and 16 which signal start of text, end of text and data link escape respectively
+                if (b == 2 || b == 3 || b == 16)
+                    bTransmitBuffer.Add(16);
 
-                    bTransmitBuffer[iXmitPointer] = b;
-                    iXmitPointer++;
-                }
+                bTransmitBuffer.Add(b);
             }
 
-            bTransmitBuffer[iXmitPointer] = 3;
-            iXmitPointer++;
+            // end of message
+            bTransmitBuffer.Add(3);
 
-            await _transport.Write(bTransmitBuffer, 0, iXmitPointer, cancellationToken).ConfigureAwait(false);
+            await _transport.Write(bTransmitBuffer.ToArray(), cancellationToken).ConfigureAwait(false);
 
             // allow write buffer to drain if supported
             while (_transport.BytesToWrite > 0)
@@ -245,8 +239,9 @@ namespace CmriSubroutines
             // add a new config instance. replace whatever was previously there
             _nodeConfigurations[UA] = new NodeConfiguration(UA, NodeType, CT);
 
+            //TODO: what is the point of this??? i dont think we use it at all for inits
             byte[] outputBuffer = BuildInitBuffer(UA, NodeType);
-            await TransmitPackage(UA, 'I', outputBuffer, cancellationToken).ConfigureAwait(false);
+            await TransmitPackage(UA, MessageType.INIT, outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -296,24 +291,30 @@ namespace CmriSubroutines
                 throw new KeyNotFoundException($"No configuration found for UA = {UA}");
 
             NodeConfiguration nodeConfig = _nodeConfigurations[UA];
-            byte[] inputs = new byte[nodeConfig.InputSize];
+            byte[] inputs = new byte[nodeConfig.InputSize]; //TODO: list instead?
 
             while (true)
             {
                 await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
 
-                await TransmitPackage(UA, 'P', inputs, cancellationToken).ConfigureAwait(false);
+                // since inputs is a poll, just send an empty array.
+                await TransmitPackage(UA, MessageType.INPUTS, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
 
                 await TryReadInputsHeader(UA, cancellationToken).ConfigureAwait(false);
 
-                for (int i = 0; i < nodeConfig.InputSize; i++)
+                for (int i = 0; i < nodeConfig.InputSize; i++) //TODO: do while???
                 {
                     byte iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
 
                     if (iInByte == 2)
                         throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
+
+                    //TODO: could just log and exit instead of throwing an error to add user flexibility
+                    // would have to figure out how to stop excessive looping. there is a max number of inputs that can be expected,
+                    // so could just stop after that number of inputs is received without the proper DLEs
                     else if (iInByte == 3)
                         throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
+
                     else if (iInByte == 16)
                         iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
 
@@ -321,6 +322,11 @@ namespace CmriSubroutines
                 }
 
                 byte etx = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
+
+                //TODO: may not actually need throw an error when the number of inputs doesn't match what's on the railroad.
+                //Could possible just check the configuration and log a warning
+                //the biggest consideration is should we both asking the user for number of inputs/ outputs. It can we infirred from the Node type/ ct,
+                //but for cpnodes there is no strictly defined type or way to infer.
                 if (etx != 3)
                     Console.Error.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
 
@@ -386,7 +392,7 @@ namespace CmriSubroutines
             if (OutputBuffer.Length != nodeConfig.OutputSize)
                 throw new ArgumentException($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
 
-            await TransmitPackage(UA, 'T', OutputBuffer, cancellationToken).ConfigureAwait(false);
+            await TransmitPackage(UA, MessageType.OUTPUTS, OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -506,11 +512,11 @@ namespace CmriSubroutines
                 throw new ArgumentOutOfRangeException("UA", "Valid UA range is 0-127");
             UA = ua;
             CT = ct;
+            NodeDefinitionParameter = (byte)nodeType;
 
             switch (nodeType)
             {
                 case NodeType.SMINI:
-                    NodeDefinitionParameter = (byte)'M';
                     InputSize = 3;
                     OutputSize = 6;
 
@@ -520,8 +526,6 @@ namespace CmriSubroutines
 
                 case NodeType.MAXI24:
                 case NodeType.MAXI32:
-                    NodeDefinitionParameter = nodeType == NodeType.MAXI24 ? (byte)'N' : (byte)'X';
-
                     if (CT == null || CT.Length == 0)
                         throw new ArgumentNullException("CT", "CT Parameter is required for 24 bit MAXI Nodes");
 
@@ -534,10 +538,9 @@ namespace CmriSubroutines
                     break;
 
                 case NodeType.CPNODE:
-                    //TODO:CP Nodes can be configured in a way that impacts input and output size. 
-                    NodeDefinitionParameter = (byte)'C';
+                    //TODO:CP Nodes can be configured in a way that impacts input and output size.
                     InputSize = 3;
-                    OutputSize = 3;
+                    OutputSize = 2;
                     break;
 
                 default:
@@ -621,9 +624,16 @@ namespace CmriSubroutines
     /// node-related operations. The values represent distinct hardware or logical node variants.</remarks>
     public enum NodeType
     {
-        SMINI,
-        MAXI24,
-        MAXI32,
-        CPNODE
+        SMINI = 'M',
+        MAXI24 = 'N',
+        MAXI32 = 'X',
+        CPNODE = 'C'
+    }
+
+    internal enum MessageType
+    {
+        INIT = 'I',
+        INPUTS = 'P',
+        OUTPUTS = 'T'
     }
 }

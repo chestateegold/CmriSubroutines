@@ -20,8 +20,8 @@ namespace CmriSubroutines.Tests
             [
                 255, 255, 2, 65, 73, 77, 0, 0, 0, 3
             ];
-
-            CollectionAssert.AreEqual(expected, transport.GetWrittenWrite(0));
+            byte[] writtenData = transport.GetWrittenWrite(0);
+            CollectionAssert.AreEqual(expected, writtenData);
         }
         [TestMethod]
         public async Task Inputs_WithSmini_WritesExpectedTransmitBuffer()
@@ -49,7 +49,7 @@ namespace CmriSubroutines.Tests
             MemoryTransport transport = new(); // no data in the read buffer, so it will timeout when trying to read the inputs response
             await transport.Open();
 
-            Subroutines subroutines = new(transport, 250, 0); 
+            Subroutines subroutines = new(transport, 250, 0);
 
             await subroutines.Init(0, NodeType.SMINI);
 

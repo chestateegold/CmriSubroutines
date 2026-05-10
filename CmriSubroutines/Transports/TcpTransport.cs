@@ -35,8 +35,14 @@ namespace CmriSubroutines.Transports
         }
 
         public int BytesToWrite => 0; // TcpClient doesn't expose pending bytes to write easily
-        public async Task Open(CancellationToken cancellationToken = default)
+        public Task Open(CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            //TODO: check that this is necessary and if it should happen after the client is connected and not before
+            DiscardInBufferSync();
+            DiscardOutBufferSync();
+
             var addresses = Dns.GetHostAddresses(_host);
             if (addresses == null || addresses.Length == 0)
                 throw new SocketException((int)SocketError.HostNotFound);
@@ -46,7 +52,7 @@ namespace CmriSubroutines.Transports
             var connectTask = _client.ConnectAsync(ip, _port);
             using (var ctr = cancellationToken.Register(() => _client.Close()))
             {
-                await connectTask.ConfigureAwait(false);
+                connectTask.GetAwaiter().GetResult();
             }
 
             _stream = _client.GetStream();
@@ -56,6 +62,8 @@ namespace CmriSubroutines.Transports
                 _client.SendTimeout = _timeoutMs;
             }
             catch { }
+
+            return Task.CompletedTask;
         }
 
         private void CloseSync()
@@ -68,6 +76,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             CloseSync();
+
             return Task.CompletedTask;
         }
 
@@ -93,6 +102,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             DiscardInBufferSync();
+
             return Task.CompletedTask;
         }
 
@@ -105,6 +115,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             DiscardOutBufferSync();
+
             return Task.CompletedTask;
         }
                 
@@ -120,16 +131,10 @@ namespace CmriSubroutines.Transports
             return buffer[0];
         }
 
-        public Task<int> Read(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        public async Task Write(byte[] buffer, CancellationToken cancellationToken = default)
         {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
-            return _stream.ReadAsync(buffer, offset, count, cancellationToken);
-        }
-
-        public async Task Write(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-        {
-            if (_stream == null) throw new InvalidOperationException("Transport not open");
-            await _stream.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            await _stream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
             await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
