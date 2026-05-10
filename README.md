@@ -122,14 +122,13 @@ Notes:
 
 ## Tested node types
 
-| Node type | Inputs tested | Outputs tested |
-| --- | --- | --- |
-| SMINI | Yes | Yes |
-| MAXI 24 with CIN/COUT cards | Yes | Yes |
-| MAXI 24 with DIN/DOUT cards | Yes | No |
-| MAXI 32 with DIN/DOUT cards | No | No |
-| MRCS cpNode 2.7 | No | No |
-| MRCS cpNode ProMini | No | No |
+| Node type | Inputs tested | Outputs tested | 2 Lead LEDs tested |
+| --- | --- | --- | --- |
+| SMINI | Yes | Yes | No |
+| MAXI 24 with CIN/COUT cards | Yes | Yes | N/A |
+| MAXI 24 with DIN/DOUT cards | Yes | No | N/A |
+| MAXI 32 with DIN/DOUT cards | No | No | N/A |
+| MRCS cpNode | Yes | Yes | No |
 
 ## License
 

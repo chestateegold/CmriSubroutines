@@ -142,23 +142,15 @@ namespace CmriSubroutines
         {
             try
             {
-                //TODO: ugly way to do timing. use the method used elsewhere for consistency
-                int elapsed = 0;
-                int pollInterval = 10; // ms
-
+                var start = System.Diagnostics.Stopwatch.StartNew();
                 do
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (_transport.BytesToRead > 0)
-                    {
                         return (byte)await _transport.ReadByte(cancellationToken).ConfigureAwait(false);
-                    }
-
-                    await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
-                    elapsed += pollInterval;
                 }
-                while (elapsed < _timeoutMs);
+                while (start.ElapsedMilliseconds < _timeoutMs);
 
                 throw new TimeoutException($"INPUT TIMEOUT EXCEEDED {_timeoutMs} NODE = {UA} ABORTING INPUT");
             }
@@ -239,38 +231,23 @@ namespace CmriSubroutines
             // add a new config instance. replace whatever was previously there
             _nodeConfigurations[UA] = new NodeConfiguration(UA, NodeType, CT);
 
-            //TODO: what is the point of this??? i dont think we use it at all for inits
-            byte[] outputBuffer = BuildInitBuffer(UA, NodeType);
-            await TransmitPackage(UA, MessageType.INIT, outputBuffer, cancellationToken).ConfigureAwait(false);
-        }
+            NodeConfiguration nodeConfig = _nodeConfigurations[UA];
 
-        /// <summary>
-        /// Builds and returns an initialization buffer for the specified node address and node type.
-        /// </summary>
-        /// <remarks>The structure and contents of the returned buffer depend on the node type and
-        /// configuration. The method may append additional bytes based on the node type to ensure correct
-        /// initialization.</remarks>
-        /// <param name="UA">The unique address of the node for which to build the initialization buffer.</param>
-        /// <param name="nodeType">The type of node that determines the initialization buffer format.</param>
-        /// <param name="CT">A byte array containing configuration or control data used in the initialization process.</param>
-        /// <returns>A byte array representing the initialization buffer for the specified node and configuration.</returns>
-        private byte[] BuildInitBuffer(int UA, NodeType nodeType)
-        {
-            var nodeConfig = _nodeConfigurations[UA];
+            // build init output buffer
             byte[] outputBuffer = new byte[3];
 
             outputBuffer[0] = nodeConfig.NodeDefinitionParameter;
             outputBuffer[1] = (byte)(_delay / 256);
             outputBuffer[2] = (byte)(_delay - (outputBuffer[1] * 256));
 
-            if (nodeType == NodeType.MAXI24 || nodeType == NodeType.MAXI32)
+            if (NodeType == NodeType.MAXI24 || NodeType == NodeType.MAXI32)
                 outputBuffer = outputBuffer.Concat(GetMaxiInitBytes(nodeConfig.CT)).ToArray();
-            else if (nodeType == NodeType.SMINI)
+            else if (NodeType == NodeType.SMINI)
                 outputBuffer = outputBuffer.Concat(GetSminiInitBytes(nodeConfig.CT)).ToArray();
-            else if (nodeType == NodeType.CPNODE)
+            else if (NodeType == NodeType.CPNODE)
                 outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
 
-            return outputBuffer;
+            await TransmitPackage(UA, MessageType.INIT, outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -291,47 +268,37 @@ namespace CmriSubroutines
                 throw new KeyNotFoundException($"No configuration found for UA = {UA}");
 
             NodeConfiguration nodeConfig = _nodeConfigurations[UA];
-            byte[] inputs = new byte[nodeConfig.InputSize]; //TODO: list instead?
+            List<byte> inputs = new List<byte>();
 
-            while (true)
+
+            await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
+
+            // since inputs is a poll, just send an empty array.
+            await TransmitPackage(UA, MessageType.INPUTS, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
+
+            await TryReadInputsHeader(UA, cancellationToken).ConfigureAwait(false);
+
+            for (int i = 0; i < 128; i++) //128 is the theoretical max number of input bytes for a single node
             {
-                await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
+                byte iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
 
-                // since inputs is a poll, just send an empty array.
-                await TransmitPackage(UA, MessageType.INPUTS, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
+                if (iInByte == 2)
+                    throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
 
-                await TryReadInputsHeader(UA, cancellationToken).ConfigureAwait(false);
+                else if (iInByte == 3)
+                    break; // end of frame, stop reading input bytes
 
-                for (int i = 0; i < nodeConfig.InputSize; i++) //TODO: do while???
-                {
-                    byte iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
+                else if (iInByte == 16)
+                    iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
 
-                    if (iInByte == 2)
-                        throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
-
-                    //TODO: could just log and exit instead of throwing an error to add user flexibility
-                    // would have to figure out how to stop excessive looping. there is a max number of inputs that can be expected,
-                    // so could just stop after that number of inputs is received without the proper DLEs
-                    else if (iInByte == 3)
-                        throw new InvalidOperationException("ERROR: No DLE ahead of 3 for UA = " + UA);
-
-                    else if (iInByte == 16)
-                        iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
-
-                    inputs[i] = iInByte;
-                }
-
-                byte etx = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
-
-                //TODO: may not actually need throw an error when the number of inputs doesn't match what's on the railroad.
-                //Could possible just check the configuration and log a warning
-                //the biggest consideration is should we both asking the user for number of inputs/ outputs. It can we infirred from the Node type/ ct,
-                //but for cpnodes there is no strictly defined type or way to infer.
-                if (etx != 3)
-                    Console.Error.WriteLine("ERROR: ETX NOT PROPERLY RECEIVED FOR UA = " + UA);
-
-                return inputs;
+                inputs.Add(iInByte);
             }
+
+            var inputArray = inputs.ToArray();
+            if (inputArray.Length != nodeConfig.InputSize)
+                Console.Error.WriteLine($"ERROR: ETX NOT PROPERLY RECEIVED FOR UA = {UA}. Expected {nodeConfig.InputSize} inputs, but received {inputArray.Length}.");
+
+            return inputArray;
         }
 
         /// <summary>
@@ -390,7 +357,7 @@ namespace CmriSubroutines
             var nodeConfig = _nodeConfigurations[UA];
 
             if (OutputBuffer.Length != nodeConfig.OutputSize)
-                throw new ArgumentException($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
+                Console.Error.WriteLine($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
 
             await TransmitPackage(UA, MessageType.OUTPUTS, OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
@@ -436,7 +403,7 @@ namespace CmriSubroutines
                     else
                     {
                         throw new ArgumentException("CT",
-                            $"CT array value at index: ${i} with value: ${CT[i]} contains invalid dual lead signal positions");
+                            $"CT array value at index: {i} with value: {CT[i]} contains invalid dual lead signal positions");
                     }
                 }
             }
@@ -489,8 +456,8 @@ namespace CmriSubroutines
     {
         public int UA { get; }
         public byte NodeDefinitionParameter { get; }
-        public int InputSize { get; }
-        public int OutputSize { get; }
+        public int? InputSize { get; }
+        public int? OutputSize { get; }
         public byte[] CT { get; }
 
         /// <summary>
@@ -520,14 +487,13 @@ namespace CmriSubroutines
                     InputSize = 3;
                     OutputSize = 6;
 
-                    //TODO: in the future, could add information about smini ct 2 lead signal configuration to ensure that outputs for 2 lead signals can be validated
-                    CT = CT ?? new byte[] { 0, 0, 0, 0, 0, 0 };
+                    CT = CT ?? new byte[] { };
                     break;
 
                 case NodeType.MAXI24:
                 case NodeType.MAXI32:
                     if (CT == null || CT.Length == 0)
-                        throw new ArgumentNullException("CT", "CT Parameter is required for 24 bit MAXI Nodes");
+                        throw new ArgumentNullException("CT", "CT Parameter is required for MAXI Nodes");
 
                     ValidateMaxi(ct);
 
@@ -538,9 +504,6 @@ namespace CmriSubroutines
                     break;
 
                 case NodeType.CPNODE:
-                    //TODO:CP Nodes can be configured in a way that impacts input and output size.
-                    InputSize = 3;
-                    OutputSize = 2;
                     break;
 
                 default:
