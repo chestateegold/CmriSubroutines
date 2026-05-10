@@ -295,7 +295,7 @@ namespace CmriSubroutines
             }
 
             var inputArray = inputs.ToArray();
-            if (inputArray.Length != nodeConfig.InputSize)
+            if (nodeConfig.InputSize.HasValue && inputArray.Length != nodeConfig.InputSize)
                 Console.Error.WriteLine($"ERROR: ETX NOT PROPERLY RECEIVED FOR UA = {UA}. Expected {nodeConfig.InputSize} inputs, but received {inputArray.Length}.");
 
             return inputArray;
