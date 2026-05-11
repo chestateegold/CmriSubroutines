@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.IO;
 using CmriSubroutines.Transports;
 
+//TODO: some of the xml docs are incorrect, especially around throwing. all need updating
 namespace CmriSubroutines
 {
     /// <summary>
@@ -16,9 +17,9 @@ namespace CmriSubroutines
     /// <remarks>The Subroutines class abstracts communication with nodes using different transport
     /// mechanisms, allowing for flexible deployment in hardware, network, or testing environments. It manages node
     /// configuration state internally and provides asynchronous methods for protocol-compliant data exchange.
-    /// Exceptions are thrown for protocol violations, invalid arguments, or transport errors to ensure robust error
-    /// handling. Thread safety is not guaranteed; callers should ensure appropriate synchronization if accessing
-    /// instances from multiple threads.</remarks>
+    /// Some operations may report protocol violations, invalid arguments, or transport errors. Thread safety is not
+    /// guaranteed; callers should ensure appropriate synchronization if accessing instances from multiple
+    /// threads.</remarks>
     public class Subroutines
     {
         private readonly Dictionary<int, NodeConfiguration> _nodeConfigurations = new Dictionary<int, NodeConfiguration>();
@@ -89,7 +90,6 @@ namespace CmriSubroutines
         /// empty.</param>
         /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for an operation before timing out. Must be non-negative.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. Must be non-negative.</param>
-        /// <param name="maxBuf">The maximum buffer size, in bytes, for the memory transport. Must be positive.</param>
         /// <returns>A Subroutines instance configured to use an in-memory transport with the specified parameters.</returns>
         public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0)
         {
@@ -99,18 +99,16 @@ namespace CmriSubroutines
         }
 
         /// <summary>
-        /// Initializes a new instance of the Subroutines class with the specified transport, timeout, delay, and buffer
-        /// size settings.
+        /// Initializes a new instance of the Subroutines class with the specified transport, timeout, and delay
+        /// settings.
         /// </summary>
-        /// <remarks>The transport's read and write buffer sizes are set to the specified maximum buffer
-        /// size, and the transport is opened and cleared upon initialization.</remarks>
+        /// <remarks>The transport is opened before use by the factory methods. This constructor stores the provided
+        /// transport and communication settings.</remarks>
         /// <param name="Transport">The transport interface used for communication. Cannot be null.</param>
         /// <param name="TimeoutMs">The maximum time, in milliseconds, to wait for transport operations. Must be positive.</param>
         /// <param name="Delay">The delay, in milliseconds, to apply between operations. Must be zero or greater.</param>
-        /// <param name="MaxBuf">The maximum buffer size, in bytes, for both read and write operations. Must be positive.</param>
         /// <exception cref="ArgumentNullException">Thrown if Transport is null.</exception>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown if TimeoutMs is less than or equal to zero, Delay is less than zero, or MaxBuf is less than or equal
-        /// to zero.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if TimeoutMs is less than or equal to zero or Delay is less than zero.</exception>
         public Subroutines(ITransport Transport, int TimeoutMs, int Delay)
         {
             _transport = Transport ?? throw new ArgumentNullException(nameof(Transport));
@@ -253,23 +251,22 @@ namespace CmriSubroutines
         /// <summary>
         /// Asynchronously retrieves the current input values for the specified node address.
         /// </summary>
-        /// <remarks>This method communicates with the node using a transport layer to request and read its
-        /// input values. The operation may be subject to protocol errors if the data stream is malformed. The method
-        /// returns as soon as a valid input sequence is received or throws an exception if a protocol violation is
-        /// detected.</remarks>
+        /// <remarks>This method communicates with the node using a transport layer to request and read its input
+        /// values. For node types with a fixed input size, the returned array will match the configured size. For node
+        /// types without a fixed input size, the method reads until the end of the frame.</remarks>
         /// <param name="UA">The unique address of the node for which to retrieve input values.</param>
         /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous operation.</param>
-        /// <returns>A byte array containing the input values for the specified node. The length of the array corresponds to the
-        /// node's configured input size.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if an unexpected byte sequence is encountered during input retrieval, indicating a protocol error.</exception>
+        /// <returns>A byte array containing the input values for the specified node. If the node has a configured
+        /// input size, the returned array is expected to match that size.</returns>
+        /// <exception cref="KeyNotFoundException">Thrown if no configuration exists for the specified unit address.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if an unexpected byte sequence is encountered during input retrieval.</exception>
         public async Task<byte[]> Inputs(int UA, CancellationToken cancellationToken = default)
         {
             if (!_nodeConfigurations.ContainsKey(UA))
-                throw new KeyNotFoundException($"No configuration found for UA = {UA}");
+                Console.Error.WriteLine($"No configuration found for UA = {UA}");
 
             NodeConfiguration nodeConfig = _nodeConfigurations[UA];
             List<byte> inputs = new List<byte>();
-
 
             await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
 
@@ -284,10 +281,8 @@ namespace CmriSubroutines
 
                 if (iInByte == 2)
                     throw new InvalidOperationException("ERROR: No DLE ahead of 2 for UA = " + UA);
-
                 else if (iInByte == 3)
                     break; // end of frame, stop reading input bytes
-
                 else if (iInByte == 16)
                     iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
 
@@ -341,18 +336,19 @@ namespace CmriSubroutines
         /// <summary>
         /// Transmits the specified output buffer to the node identified by the given UA.
         /// </summary>
-        /// <remarks>The method discards any existing output buffer before transmitting the new data. The
-        /// operation is performed asynchronously and can be cancelled using the provided cancellation token.</remarks>
+        /// <remarks>The method discards any existing output buffer before transmitting the new data. For node types
+        /// with a fixed output size, the supplied buffer is expected to match the configured size. The operation is
+        /// performed asynchronously and can be cancelled using the provided cancellation token.</remarks>
         /// <param name="UA">The unique address of the target node to which the output buffer will be sent.</param>
-        /// <param name="OutputBuffer">The buffer containing output data to transmit. The length must match the expected output size for the
-        /// specified node.</param>
+        /// <param name="OutputBuffer">The buffer containing output data to transmit. If the node has a configured
+        /// output size, the length is expected to match that size.</param>
         /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous operation.</param>
         /// <returns>A task that represents the asynchronous transmit operation.</returns>
-        /// <exception cref="ArgumentException">Thrown if the length of OutputBuffer does not match the expected output size for the specified UA.</exception>
+        /// <exception cref="KeyNotFoundException">Thrown if no configuration exists for the specified unit address.</exception>
         public async Task Outputs(int UA, byte[] OutputBuffer, CancellationToken cancellationToken = default)
         {
             if (!_nodeConfigurations.ContainsKey(UA))
-                throw new KeyNotFoundException($"No configuration found for UA = {UA}");
+                Console.Error.WriteLine($"No configuration found for UA = {UA}");
 
             var nodeConfig = _nodeConfigurations[UA];
 
@@ -465,8 +461,8 @@ namespace CmriSubroutines
         /// configuration table.
         /// </summary>
         /// <remarks>For SMINI nodes, if ct is null, a default configuration table is used. For MAXI24 and
-        /// MAXI32 nodes, ct must be provided and valid. The input and output sizes are determined based on the node
-        /// type and configuration table.</remarks>
+        /// MAXI32 nodes, ct must be provided and valid. For CPNODE, input and output sizes are not fixed by this
+        /// class.</remarks>
         /// <param name="ua">The unit address for the node. Must be in the range 0 to 127.</param>
         /// <param name="nodeType">The type of node to configure. Determines input and output sizes and required configuration parameters.</param>
         /// <param name="ct">The configuration table for the node. Required for MAXI node types; may be null for other node types.</param>
@@ -504,6 +500,8 @@ namespace CmriSubroutines
                     break;
 
                 case NodeType.CPNODE:
+                    InputSize = null;
+                    OutputSize = null;
                     break;
 
                 default:
