@@ -1,0 +1,137 @@
+using System;
+using System.IO.Ports;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace CmriSubroutines.Transports
+{
+    public class SerialTransport : ITransport
+    {
+        private readonly SerialPort _port;
+
+        public SerialTransport(int comPort, BaudRate baudRate, int bufferSize)
+        {
+            _port = new SerialPort(NormalizeComPortName(comPort))
+            {
+                BaudRate = (int)baudRate,
+                Parity = Parity.None,
+                DataBits = 8,
+                StopBits = StopBits.Two,
+                ReadBufferSize = bufferSize,
+                WriteBufferSize = bufferSize
+            };
+        }
+
+        public SerialTransport(string portName, BaudRate baudRate, int bufferSize)
+        {
+            _port = new SerialPort(NormalizePortName(portName))
+            {
+                BaudRate = (int)baudRate,
+                Parity = Parity.None,
+                DataBits = 8,
+                StopBits = StopBits.Two,
+                ReadBufferSize = bufferSize,
+                WriteBufferSize = bufferSize
+            };
+        }
+
+        private static string NormalizePortName(string portName)
+        {
+            if (string.IsNullOrWhiteSpace(portName))
+                throw new ArgumentNullException(nameof(portName));
+
+            portName = portName.Trim();
+
+            if (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || portName.Contains("/") || portName.Contains("\\"))
+                return portName;
+
+            if (int.TryParse(portName, out int portNumber))
+                return "COM" + portNumber;
+
+            return portName;
+        }
+
+        private static string NormalizeComPortName(int comPort)
+        {
+            if (comPort < 1)
+                throw new ArgumentOutOfRangeException(nameof(comPort));
+
+            return "COM" + comPort;
+        }
+        public int BytesToRead => _port.BytesToRead;
+        public int BytesToWrite => _port.BytesToWrite;
+        public Task Open(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _port.Open();
+
+            DiscardInBufferSync();
+            DiscardOutBufferSync();
+
+            return Task.CompletedTask;
+        }
+
+        public Task Close(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            CloseSync();
+
+            return Task.CompletedTask;
+        }
+
+        private void CloseSync()
+        {
+            if (_port.IsOpen)
+                _port.Close();
+        }
+        public void Dispose() => CloseSync();
+        public Task DiscardInBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardInBufferSync();
+
+            return Task.CompletedTask;
+        }
+
+        public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DiscardOutBufferSync();
+
+            return Task.CompletedTask;
+        }
+
+        private void DiscardInBufferSync() => _port.DiscardInBuffer();
+
+        private void DiscardOutBufferSync() => _port.DiscardOutBuffer();
+
+        private int ReadByteSync() => _port.ReadByte();
+
+        public Task<int> ReadByte(CancellationToken cancellationToken = default)
+        {
+            // SerialPort doesn't provide a true async API in older frameworks; wrap the blocking call.
+            return Task.Run(() => ReadByteSync(), cancellationToken);
+        }
+
+        private void WriteSync(byte[] buffer) => _port.Write(buffer, 0, buffer.Length);
+
+        public Task Write(byte[] buffer, CancellationToken cancellationToken = default)
+        {
+            return Task.Run(() => WriteSync(buffer), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Specifies the supported baud rates for CMRI serial communication, expressed in hundreds of bits per second.
+    /// </summary>
+    public enum BaudRate
+    {
+        B9600 = 9600,
+        B19200 = 19200,
+        B28800 = 28800,
+        B57600 = 57600,
+        B115200 = 115200
+    }
+}
