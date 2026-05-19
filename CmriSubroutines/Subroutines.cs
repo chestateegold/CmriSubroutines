@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using CmriSubroutines.Transports;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 //TODO: some of the xml docs are incorrect, especially around throwing. all need updating
 namespace CmriSubroutines
@@ -26,6 +28,7 @@ namespace CmriSubroutines
         private readonly ITransport _transport;
         private readonly int _timeoutMs;
         private readonly int _delay;
+        private readonly ILogger _logger;
 
         /// <summary>
         /// Creates a new Subroutines instance configured to communicate over a serial port using a typed baud rate.
@@ -36,12 +39,14 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0 milliseconds.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64 bytes.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port settings.</returns>
-        public static async Task<Subroutines> CreateSerial(int comPort, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateSerial(int comPort, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64, ILogger logger = null)
         {
-            var transport = new SerialTransport(comPort, baudRate, maxBuf);
+            if (logger == null)
+                logger = NullLogger.Instance;
+            var transport = new SerialTransport(comPort, baudRate, maxBuf, logger);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay);
+            return new Subroutines(transport, timeoutMs, delay, logger);
         }
 
         /// <summary>
@@ -53,12 +58,14 @@ namespace CmriSubroutines
         /// <param name="delay">The delay, in milliseconds, to wait between operations. The default is 0.</param>
         /// <param name="maxBuf">The maximum buffer size, in bytes, for serial communication. The default is 64.</param>
         /// <returns>A Subroutines instance configured to use the specified serial port and communication parameters.</returns>
-        public static async Task<Subroutines> CreateSerial(string portName, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateSerial(string portName, BaudRate baudRate = BaudRate.B9600, int timeoutMs = 3000, int delay = 0, int maxBuf = 64, ILogger logger = null)
         {
-            var transport = new SerialTransport(portName, baudRate, maxBuf);
+            if (logger == null)
+                logger = NullLogger.Instance;
+            var transport = new SerialTransport(portName, baudRate, maxBuf, logger);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay);
+            return new Subroutines(transport, timeoutMs, delay, logger);
         }
 
         /// <summary>
@@ -72,12 +79,14 @@ namespace CmriSubroutines
         /// <param name="maxBuf">The maximum buffer size, in bytes, used for data transfers. Must be greater than zero. The default is 64
         /// bytes.</param>
         /// <returns>A Subroutines instance configured to use a TCP transport with the specified connection and settings.</returns>
-        public static async Task<Subroutines> CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64)
+        public static async Task<Subroutines> CreateTcp(string host, int port, int timeoutMs = 3000, int delay = 0, int maxBuf = 64, ILogger logger = null)
         {
-            var transport = new TcpTransport(host, port, timeoutMs, maxBuf);
+            if (logger == null)
+                logger = NullLogger.Instance;
+            var transport = new TcpTransport(host, port, timeoutMs, maxBuf, logger);
             await transport.Open().ConfigureAwait(false);
 
-            return new Subroutines(transport, timeoutMs, delay);
+            return new Subroutines(transport, timeoutMs, delay, logger);
         }
 
         /// <summary>
@@ -91,11 +100,13 @@ namespace CmriSubroutines
         /// <param name="timeoutMs">The maximum time, in milliseconds, to wait for an operation before timing out. Must be non-negative.</param>
         /// <param name="delay">The delay, in milliseconds, to wait between operations. Must be non-negative.</param>
         /// <returns>A Subroutines instance configured to use an in-memory transport with the specified parameters.</returns>
-        public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0)
+        public static async Task<Subroutines> CreateMemory(IEnumerable<byte> initialReadBuffer = null, int timeoutMs = 3000, int delay = 0, ILogger logger = null)
         {
-            var transport = initialReadBuffer == null ? new MemoryTransport() : new MemoryTransport(initialReadBuffer);
+            if (logger == null)
+                logger = NullLogger.Instance;
+            var transport = initialReadBuffer == null ? new MemoryTransport(logger) : new MemoryTransport(initialReadBuffer, logger);
             await transport.Open().ConfigureAwait(false);
-            return new Subroutines(transport, timeoutMs, delay);
+            return new Subroutines(transport, timeoutMs, delay, logger);
         }
 
         /// <summary>
@@ -110,8 +121,14 @@ namespace CmriSubroutines
         /// <exception cref="ArgumentNullException">Thrown if Transport is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if TimeoutMs is less than or equal to zero or Delay is less than zero.</exception>
         public Subroutines(ITransport Transport, int TimeoutMs, int Delay)
+            : this(Transport, TimeoutMs, Delay, NullLogger.Instance)
+        {
+        }
+
+        public Subroutines(ITransport Transport, int TimeoutMs, int Delay, ILogger logger = null)
         {
             _transport = Transport ?? throw new ArgumentNullException(nameof(Transport));
+            _logger = logger ?? NullLogger.Instance;
 
             if (TimeoutMs <= 0)
                 throw new ArgumentOutOfRangeException("TimeoutMs", "TimeoutMs must be positive");
@@ -121,6 +138,8 @@ namespace CmriSubroutines
 
             _timeoutMs = TimeoutMs;
             _delay = Delay;
+
+            _logger.LogInformation("Subroutines initialized with timeout {TimeoutMs} ms and delay {Delay} ms.", TimeoutMs, Delay);
 
         }
 
@@ -146,11 +165,15 @@ namespace CmriSubroutines
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (_transport.BytesToRead > 0)
-                        return (byte)await _transport.ReadByte(cancellationToken).ConfigureAwait(false);
+                    {
+                        byte b = (byte)await _transport.ReadByte(cancellationToken).ConfigureAwait(false);
+                        _logger.LogTrace($"Read byte {b}"); 
+                        return b;
+                    }
                 }
                 while (start.ElapsedMilliseconds < _timeoutMs);
 
-                throw new TimeoutException($"INPUT TIMEOUT EXCEEDED {_timeoutMs} NODE = {UA} ABORTING INPUT");
+                throw new TimeoutException($"Input timeout exceeded {_timeoutMs} on node {UA}. Aborting input");
             }
             catch (TimeoutException)
             {
@@ -203,6 +226,7 @@ namespace CmriSubroutines
             // end of message
             bTransmitBuffer.Add(3);
 
+            _logger.LogDebug($"Transmitting package to UA = {UA}, MessageType = {MessageType}, OutputBuffer = 0x{BitConverter.ToString(OutputBuffer).Replace("-", "")}");
             await _transport.Write(bTransmitBuffer.ToArray(), cancellationToken).ConfigureAwait(false);
 
             // allow write buffer to drain if supported
@@ -245,6 +269,7 @@ namespace CmriSubroutines
             else if (NodeType == NodeType.CPNODE)
                 outputBuffer = outputBuffer.Concat(new byte[1] { 0 }).ToArray();
 
+            _logger.LogInformation($"Initializing node with UA = {UA}, NodeType = {NodeType}, Delay = {_delay} ms, CT = {(CT != null ? "0x" + BitConverter.ToString(CT).Replace("-", "") : "null")}");
             await TransmitPackage(UA, MessageType.INIT, outputBuffer, cancellationToken).ConfigureAwait(false);
         }
 
@@ -263,7 +288,7 @@ namespace CmriSubroutines
         public async Task<byte[]> Inputs(int UA, CancellationToken cancellationToken = default)
         {
             if (!_nodeConfigurations.ContainsKey(UA))
-                Console.Error.WriteLine($"No configuration found for UA = {UA}");
+                _logger.LogWarning($"No configuration found for UA = {UA}");
 
             NodeConfiguration nodeConfig = _nodeConfigurations[UA];
             List<byte> inputs = new List<byte>();
@@ -271,6 +296,7 @@ namespace CmriSubroutines
             await _transport.DiscardInBuffer(cancellationToken).ConfigureAwait(false);
 
             // since inputs is a poll, just send an empty array.
+            _logger.LogInformation($"Requesting inputs for UA = {UA}");
             await TransmitPackage(UA, MessageType.INPUTS, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
 
             await TryReadInputsHeader(UA, cancellationToken).ConfigureAwait(false);
@@ -289,9 +315,11 @@ namespace CmriSubroutines
                 inputs.Add(iInByte);
             }
 
+            _logger.LogInformation($"Received input bytes for UA = {UA}: {BitConverter.ToString(inputs.ToArray())}");
+
             var inputArray = inputs.ToArray();
             if (nodeConfig.InputSize.HasValue && inputArray.Length != nodeConfig.InputSize)
-                Console.Error.WriteLine($"ERROR: ETX NOT PROPERLY RECEIVED FOR UA = {UA}. Expected {nodeConfig.InputSize} inputs, but received {inputArray.Length}.");
+                _logger.LogWarning($"ETX not properly received for UA = {UA}. Expected {nodeConfig.InputSize} inputs, but received {inputArray.Length}.");
 
             return inputArray;
         }
@@ -311,6 +339,7 @@ namespace CmriSubroutines
         /// <exception cref="TimeoutException">Thrown if the operation does not complete within the configured timeout period.</exception>
         private async Task<bool> TryReadInputsHeader(int UA, CancellationToken cancellationToken)
         {
+            _logger.LogInformation($"Reading inputs header for UA = {UA}");
             var start = System.Diagnostics.Stopwatch.StartNew();
 
             while (start.ElapsedMilliseconds < _timeoutMs)
@@ -321,11 +350,11 @@ namespace CmriSubroutines
 
                 iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
                 if (iInByte - 65 != UA)
-                    throw new InvalidDataException($"ERROR; Received bad UA = {iInByte}");
+                    throw new InvalidDataException($"Received bad UA = {iInByte}");
 
                 iInByte = await ReceiveByte(UA, cancellationToken).ConfigureAwait(false);
                 if (iInByte != 82)
-                    throw new InvalidDataException($"Error received not = R for UA = {UA}");
+                    throw new InvalidDataException($"Received byte not = R for UA = {UA}");
 
                 return true;
             }
@@ -348,13 +377,14 @@ namespace CmriSubroutines
         public async Task Outputs(int UA, byte[] OutputBuffer, CancellationToken cancellationToken = default)
         {
             if (!_nodeConfigurations.ContainsKey(UA))
-                Console.Error.WriteLine($"No configuration found for UA = {UA}");
+                _logger.LogWarning($"No configuration found for UA = {UA}");
 
             var nodeConfig = _nodeConfigurations[UA];
 
             if (OutputBuffer.Length != nodeConfig.OutputSize)
-                Console.Error.WriteLine($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
+                _logger.LogWarning($"Output buffer size ({OutputBuffer.Length}) does not match expected size ({nodeConfig.OutputSize}) for UA = {UA}");
 
+            _logger.LogInformation($"Transmitting output buffer for UA = {UA}");
             await TransmitPackage(UA, MessageType.OUTPUTS, OutputBuffer, cancellationToken).ConfigureAwait(false);
         }
 

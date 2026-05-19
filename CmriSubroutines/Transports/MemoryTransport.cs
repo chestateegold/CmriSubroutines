@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CmriSubroutines.Transports
 {
@@ -12,13 +14,26 @@ namespace CmriSubroutines.Transports
         private readonly List<byte[]> _writeHistory = new List<byte[]>();
         private readonly object _syncRoot = new object();
         private bool _isOpen;
+        private readonly ILogger _logger;
 
         public MemoryTransport()
+            : this(NullLogger.Instance)
         {
         }
 
-        public MemoryTransport(IEnumerable<byte> initialReadBuffer)
+        public MemoryTransport(ILogger logger)
         {
+            _logger = logger ?? NullLogger.Instance;
+        }
+
+        public MemoryTransport(IEnumerable<byte> initialReadBuffer)
+            : this(initialReadBuffer, NullLogger.Instance)
+        {
+        }
+
+        public MemoryTransport(IEnumerable<byte> initialReadBuffer, ILogger logger)
+        {
+            _logger = logger ?? NullLogger.Instance;
             if (initialReadBuffer == null)
                 return;
             //TODO: rather than enqueueing read data here, we could store locally and actually only enqueue after discardinbuffer is called
@@ -50,6 +65,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             OpenSync();
+            _logger.LogDebug("Memory transport opened.");
             return Task.CompletedTask;
         }
 
@@ -62,6 +78,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             CloseSync();
+            _logger.LogDebug("Memory transport closed.");
             return Task.CompletedTask;
         }
 
@@ -83,6 +100,7 @@ namespace CmriSubroutines.Transports
         public Task<int> ReadByte(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _logger.LogTrace("Reading a byte from memory transport.");
             return Task.FromResult(ReadByteSync());
         }
 
@@ -103,6 +121,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             WriteSync(buffer);
+            _logger.LogTrace("Writing {Count} bytes to memory transport.", buffer == null ? 0 : buffer.Length);
             return Task.CompletedTask;
         }
 
@@ -120,6 +139,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             DiscardInBufferSync();
+            _logger.LogTrace("Discarding memory transport input buffer.");
             return Task.CompletedTask;
         }
 
@@ -131,6 +151,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
             DiscardOutBufferSync();
+            _logger.LogTrace("Discarding memory transport output buffer.");
             return Task.CompletedTask;
         }
 

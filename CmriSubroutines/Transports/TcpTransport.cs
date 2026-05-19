@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CmriSubroutines.Transports
 {
@@ -15,13 +17,20 @@ namespace CmriSubroutines.Transports
         private readonly int _port;
         private readonly int _bufferSize;
         private readonly int _timeoutMs;
+        private readonly ILogger _logger;
 
         public TcpTransport(string host, int port, int timeoutMs, int bufferSize)
+            : this(host, port, timeoutMs, bufferSize, NullLogger.Instance)
+        {
+        }
+
+        public TcpTransport(string host, int port, int timeoutMs, int bufferSize, ILogger logger)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _port = port;
             _bufferSize = bufferSize;
             _timeoutMs = timeoutMs;
+            _logger = logger ?? NullLogger.Instance;
         }
 
         public int BytesToRead
@@ -39,6 +48,7 @@ namespace CmriSubroutines.Transports
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            _logger.LogInformation("Opening TCP transport to {Host}:{Port}.", _host, _port);
             //TODO: check that this is necessary and if it should happen after the client is connected and not before
             DiscardInBufferSync();
             DiscardOutBufferSync();
@@ -63,6 +73,7 @@ namespace CmriSubroutines.Transports
             }
             catch { }
 
+            _logger.LogInformation("TCP transport connected to {Host}:{Port}.", _host, _port);
             return Task.CompletedTask;
         }
 
@@ -75,7 +86,10 @@ namespace CmriSubroutines.Transports
         public Task Close(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _logger.LogInformation("Closing TCP transport to {Host}:{Port}.", _host, _port);
             CloseSync();
+
+            _logger.LogInformation("TCP transport to {Host}:{Port} closed.", _host, _port);
 
             return Task.CompletedTask;
         }
@@ -101,6 +115,7 @@ namespace CmriSubroutines.Transports
         public Task DiscardInBuffer(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _logger.LogTrace("Discarding pending TCP input on {Host}:{Port}.", _host, _port);
             DiscardInBufferSync();
 
             return Task.CompletedTask;
@@ -114,6 +129,7 @@ namespace CmriSubroutines.Transports
         public Task DiscardOutBuffer(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _logger.LogTrace("Discarding pending TCP output on {Host}:{Port}.", _host, _port);
             DiscardOutBufferSync();
 
             return Task.CompletedTask;
@@ -125,6 +141,7 @@ namespace CmriSubroutines.Transports
                 await Task.FromCanceled<int>(cancellationToken).ConfigureAwait(false);
 
             if (_stream == null) throw new InvalidOperationException("Transport not open");
+            _logger.LogTrace("Reading a byte from TCP transport {Host}:{Port}.", _host, _port);
             var buffer = new byte[1];
             int read = await _stream.ReadAsync(buffer, 0, 1, cancellationToken).ConfigureAwait(false);
             if (read == 0) return -1;
@@ -134,6 +151,7 @@ namespace CmriSubroutines.Transports
         public async Task Write(byte[] buffer, CancellationToken cancellationToken = default)
         {
             if (_stream == null) throw new InvalidOperationException("Transport not open");
+            _logger.LogTrace("Writing {Count} bytes to TCP transport {Host}:{Port}.", buffer == null ? 0 : buffer.Length, _host, _port);
             await _stream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
             await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
